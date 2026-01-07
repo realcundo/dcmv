@@ -1,7 +1,13 @@
 use anyhow::{Context, Result};
 use dicom::core::dictionary::UidDictionary;
-use dicom::object::{open_file, InMemDicomObject, StandardDataDictionary};
+use dicom::object::{
+    open_file,
+    FileDicomObject,
+    InMemDicomObject,
+    StandardDataDictionary
+};
 use dicom_object::Tag;
+use dicom_pixeldata::PixelDecoder;
 
 /// DICOM image metadata extracted from the file
 #[derive(Debug, Clone)]
@@ -17,15 +23,14 @@ pub struct DicomMetadata {
 }
 
 /// Open and parse a DICOM file
-pub fn open_dicom_file(file_path: &std::path::Path) -> Result<InMemDicomObject<StandardDataDictionary>> {
-    let file_obj = open_file(file_path)
-        .with_context(|| format!("Failed to open DICOM file: {}", file_path.display()))?;
-    Ok(file_obj.into_inner())
+pub fn open_dicom_file(file_path: &std::path::Path) -> Result<FileDicomObject<InMemDicomObject<StandardDataDictionary>>> {
+    open_file(file_path)
+        .with_context(|| format!("Failed to open DICOM file: {}", file_path.display()))
 }
 
 /// Extract metadata and pixel data from a DICOM object
 pub fn extract_dicom_data(
-    obj: &InMemDicomObject<StandardDataDictionary>,
+    obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
     user_window_center: Option<f64>,
     user_window_width: Option<f64>,
 ) -> Result<DicomMetadata> {
@@ -75,23 +80,12 @@ pub fn extract_dicom_data(
             Some((vertical, horizontal))
         });
 
-    // Decode pixel data
-    // Get the raw pixel data from the DICOM object
-    let pixel_data = obj.get(tags::PIXEL_DATA)
-        .and_then(|e| {
-            // Get the value as a byte vector
-            e.value().to_bytes().ok()
-        })
-        .and_then(|bytes| {
-            // Convert bytes to u16 pixels (little-endian)
-            if bytes.len() % 2 != 0 {
-                return None;
-            }
-            Some(bytes.chunks_exact(2)
-                .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
-                .collect::<Vec<_>>())
-        })
-        .context("Failed to get pixel data")?;
+    // Decode pixel data (handles both compressed and uncompressed)
+    let decoded_pixel_data = obj.decode_pixel_data()
+        .context("Failed to decode pixel data")?;
+
+    // Get raw pixel data as u16 (without rescaling/VOI LUT applied)
+    let pixel_data = decoded_pixel_data.data_ow();
 
     Ok(DicomMetadata {
         rows,
@@ -106,7 +100,7 @@ pub fn extract_dicom_data(
 }
 
 /// Print DICOM metadata to stdout
-pub fn print_metadata(obj: &InMemDicomObject<StandardDataDictionary>) {
+pub fn print_metadata(obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>) {
     use dicom::dictionary_std::tags;
 
     // Patient info
@@ -133,7 +127,7 @@ pub fn print_metadata(obj: &InMemDicomObject<StandardDataDictionary>) {
 }
 
 fn print_tag(
-    obj: &InMemDicomObject<StandardDataDictionary>,
+    obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
     tag: Tag,
     name: &str,
 ) {
@@ -147,7 +141,7 @@ fn print_tag(
 }
 
 /// Print dimensions as "WIDTHxHEIGHT" combining rows and columns
-fn print_dimensions(obj: &InMemDicomObject<StandardDataDictionary>) {
+fn print_dimensions(obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>) {
     use dicom::dictionary_std::tags;
 
     let cols = obj.get(tags::COLUMNS).and_then(|e| e.value().to_str().ok());
@@ -163,7 +157,7 @@ fn print_dimensions(obj: &InMemDicomObject<StandardDataDictionary>) {
 
 /// Print pixel aspect ratio in a readable format (e.g., "1:1" instead of "1\1")
 /// DICOM tag (0028,0034) stores two integers: vertical\horizontal
-fn print_pixel_aspect_ratio(obj: &InMemDicomObject<StandardDataDictionary>) {
+fn print_pixel_aspect_ratio(obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>) {
     use dicom::dictionary_std::tags;
 
     if let Some(elem) = obj.get(tags::PIXEL_ASPECT_RATIO) {
@@ -182,7 +176,7 @@ fn print_pixel_aspect_ratio(obj: &InMemDicomObject<StandardDataDictionary>) {
 }
 
 /// Print SOP Class UID with human-readable name from the DICOM dictionary
-fn print_sop_class_uid(obj: &InMemDicomObject<StandardDataDictionary>) {
+fn print_sop_class_uid(obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>) {
     use dicom::dictionary_std::tags;
     use dicom_dictionary_std::sop_class;
 
