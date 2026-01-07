@@ -6,6 +6,8 @@ use dicom::object::{
     InMemDicomObject,
     StandardDataDictionary
 };
+use dicom::encoding::TransferSyntaxIndex;
+use dicom_transfer_syntax_registry::TransferSyntaxRegistry;
 use dicom_object::Tag;
 use dicom_pixeldata::PixelDecoder;
 
@@ -121,6 +123,7 @@ pub fn print_metadata(obj: &FileDicomObject<InMemDicomObject<StandardDataDiction
     print_dimensions(obj);
     print_pixel_aspect_ratio(obj);
     print_sop_class_uid(obj);
+    print_transfer_syntax_uid(obj);
     print_tag(obj, tags::SLICE_THICKNESS, "Slice Thickness");
 
     println!();
@@ -194,4 +197,18 @@ fn print_sop_class_uid(obj: &FileDicomObject<InMemDicomObject<StandardDataDictio
             Err(_) => println!("{:20}: {:?}", "SOP Class UID", elem.value()),
         }
     }
+}
+
+/// Print Transfer Syntax UID with human-readable name from the DICOM dictionary
+fn print_transfer_syntax_uid(obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>) {
+    // Get transfer syntax from meta header
+    let uid = obj.meta().transfer_syntax();
+
+    // Look up human-readable name in transfer syntax registry
+    let name = TransferSyntaxRegistry
+        .get(uid)
+        .map(|ts| ts.name())
+        .unwrap_or("Unknown");
+
+    println!("{:20}: {} ({})", "Transfer Syntax", name, uid);
 }
