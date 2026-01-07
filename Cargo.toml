@@ -1,0 +1,21 @@
+[package]
+name = "dicom-viewer"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.100"
+clap = { version = "4.5.54", features = ["derive"] }
+dicom = "0.9.0"
+dicom-object = "0.9.0"
+dicom-dictionary-std = { version = "0.9.0", features = ["sop-class"] }
+dicom-pixeldata = "0.9.0"
+image = "0.25.9"
+viuer = "0.11.0"
+
+[profile.release]
+opt-level = 3          # Maximum optimization speed
+lto = "fat"            # Full Link Time Optimization
+codegen-units = 1      # Better optimization at cost of compile time
+panic = "abort"        # Reduce binary size by aborting on panic
+strip = true           # Strip debug symbols
