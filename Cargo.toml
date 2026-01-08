@@ -30,3 +30,10 @@ lto = "fat"            # Full Link Time Optimization
 codegen-units = 1      # Better optimization at cost of compile time
 panic = "abort"        # Reduce binary size by aborting on panic
 strip = true           # Strip debug symbols
+
+# Benchmark profile with native CPU optimizations
+[profile.bench]
+inherits = "release"
+opt-level = 3
+lto = "fat"
+codegen-units = 1

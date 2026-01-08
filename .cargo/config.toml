@@ -1,0 +1,3 @@
+[build]
+# Use native CPU instructions for AVX2, etc
+rustflags = ["-C", "target-cpu=native"]

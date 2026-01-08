@@ -21,13 +21,21 @@ pub fn convert_to_image(metadata: &DicomMetadata) -> Result<DynamicImage> {
 }
 
 /// Convert grayscale DICOM data to RGB image
+///
+/// Uses f32 for calculations which may be faster due to:
+/// - Better SIMD utilization (8 floats per AVX2 register vs 4 for f64)
+/// - Reduced memory bandwidth for intermediate values
 fn convert_grayscale(metadata: &DicomMetadata) -> Result<DynamicImage> {
     let pixel_data = extract_grayscale_pixels(metadata)?;
 
+    // Convert rescale parameters to f32
+    let slope = metadata.rescale_slope as f32;
+    let intercept = metadata.rescale_intercept as f32;
+
     // First pass: calculate min and max from rescaled pixel values
     let (min_val, max_val) = pixel_data.iter()
-        .map(|&pixel| f64::from(pixel).mul_add(metadata.rescale_slope, metadata.rescale_intercept))
-        .fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), val| {
+        .map(|&pixel| f32::from(pixel).mul_add(slope, intercept))
+        .fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), val| {
             (min.min(val), max.max(val))
         });
 
@@ -35,19 +43,23 @@ fn convert_grayscale(metadata: &DicomMetadata) -> Result<DynamicImage> {
     let range = if max_val > min_val {
         max_val - min_val
     } else {
-        1.0 // Prevent division by zero, all pixels will map to middle gray
+        1.0_f32 // Prevent division by zero, all pixels will map to middle gray
     };
 
     // Pre-calculate inversion flag (avoid calling method for every pixel)
     let should_invert = metadata.photometric_interpretation.should_invert();
 
     // Second pass: normalize pixels to 0-255 range
+    // Note: Clamping is theoretically unnecessary since we normalize to [min_val, max_val]
+    // However, we keep it as safety against floating-point rounding errors
     let rgb_pixels: Vec<u8> = pixel_data.iter().flat_map(|&pixel| {
-        let rescaled = f64::from(pixel).mul_add(metadata.rescale_slope, metadata.rescale_intercept);
+        let rescaled = f32::from(pixel).mul_add(slope, intercept);
 
         // Map [min_val, max_val] to [0, 255]
         let normalized = (rescaled - min_val) / range;
-        let gray = (normalized * 255.0).clamp(0.0, 255.0) as u8;
+        // Saturating cast: values < 0 become 0, values > 255 become 255
+        // This guards against floating-point rounding errors (e.g., -0.0, 255.0001)
+        let gray = (normalized * 255.0_f32) as u8;
 
         // Invert for MONOCHROME1 (min=white, max=black)
         let gray = if should_invert {
