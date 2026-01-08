@@ -5,9 +5,9 @@ use std::path::PathBuf;
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
-    /// DICOM file path to display
-    #[arg(value_name = "FILE")]
-    pub file: PathBuf,
+    /// DICOM file path(s) to display
+    #[arg(value_name = "FILE", required = true)]
+    pub files: Vec<PathBuf>,
 
     /// Output width in terminal columns
     #[arg(short = 'W', long)]

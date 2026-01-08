@@ -8,26 +8,40 @@ use dcmv::display;
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    // Open and parse DICOM file
-    let obj = dicom::open_dicom_file(&args.file)?;
+    let multiple_files = args.files.len() > 1;
 
-    // Display metadata if verbose
-    if args.verbose {
-        dicom::print_metadata(&obj);
+    for (idx, file_path) in args.files.iter().enumerate() {
+        // Print filename if multiple files
+        if multiple_files {
+            println!("{}", file_path.display());
+        }
+
+        // Open and parse DICOM file
+        let obj = dicom::open_dicom_file(file_path)?;
+
+        // Display metadata if verbose (between filename and image)
+        if args.verbose {
+            dicom::print_metadata(&obj);
+        }
+
+        // Extract DICOM data
+        let metadata = dicom::extract_dicom_data(
+            &obj,
+            args.window_center,
+            args.window_width,
+        )?;
+
+        // Convert to image
+        let image = image::convert_to_image(&metadata)?;
+
+        // Display image in terminal
+        display::print_image(&image, &metadata, &args)?;
+
+        // Add blank line between files when processing multiple files
+        if multiple_files && idx < args.files.len() - 1 {
+            println!();
+        }
     }
-
-    // Extract DICOM data
-    let metadata = dicom::extract_dicom_data(
-        &obj,
-        args.window_center,
-        args.window_width,
-    )?;
-
-    // Convert to image
-    let image = image::convert_to_image(&metadata)?;
-
-    // Display image in terminal
-    display::print_image(&image, &metadata, &args)?;
 
     Ok(())
 }
