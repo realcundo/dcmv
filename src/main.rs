@@ -1,5 +1,5 @@
 use anyhow::Result;
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use dcmv::cli::Args;
 use dcmv::dicom;
 use dcmv::image;
@@ -7,6 +7,13 @@ use dcmv::display;
 
 fn main() -> Result<()> {
     let args = Args::parse();
+
+    // Show help if no files provided
+    if args.files.is_empty() {
+        Args::command().print_help()?;
+        println!();
+        return Ok(());
+    }
 
     let multiple_files = args.files.len() > 1;
 

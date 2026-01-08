@@ -6,7 +6,7 @@ use std::path::PathBuf;
 #[command(author, version, about, long_about = None)]
 pub struct Args {
     /// DICOM file path(s) to display
-    #[arg(value_name = "FILE", required = true)]
+    #[arg(value_name = "FILE")]
     pub files: Vec<PathBuf>,
 
     /// Output width in terminal columns
