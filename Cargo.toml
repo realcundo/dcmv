@@ -20,6 +20,13 @@ dicom-transfer-syntax-registry = "0.9.0"
 image = "0.25.9"
 viuer = {  version="0.11.0", features=["icy_sixel"] }
 
+[dev-dependencies]
+criterion = "0.8.1"
+
+[[bench]]
+name = "dicom_bench"
+harness = false
+
 [profile.release]
 opt-level = 3          # Maximum optimization speed
 lto = "fat"            # Full Link Time Optimization
