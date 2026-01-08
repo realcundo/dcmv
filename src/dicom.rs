@@ -21,6 +21,7 @@ pub struct DicomMetadata {
     pub window_center: Option<f64>,
     pub window_width: Option<f64>,
     pub pixel_aspect_ratio: Option<(f64, f64)>, // (vertical, horizontal)
+    pub should_invert: bool,                     // true for MONOCHROME1, false for MONOCHROME2
     pub pixel_data: Vec<u16>,
 }
 
@@ -82,6 +83,15 @@ pub fn extract_dicom_data(
             Some((vertical, horizontal))
         });
 
+    // Get photometric interpretation to determine if pixel values should be inverted
+    // MONOCHROME1 = inverted (min value = white, max value = black)
+    // MONOCHROME2 = normal (min value = black, max value = white)
+    let should_invert = obj
+        .get(tags::PHOTOMETRIC_INTERPRETATION)
+        .and_then(|e| e.value().to_str().ok())
+        .map(|s| s.trim() == "MONOCHROME1" || s.trim() == "MONOCHROME1 ")
+        .unwrap_or(false);
+
     // Decode pixel data (handles both compressed and uncompressed)
     let decoded_pixel_data = obj.decode_pixel_data()
         .context("Failed to decode pixel data")?;
@@ -97,6 +107,7 @@ pub fn extract_dicom_data(
         window_center,
         window_width,
         pixel_aspect_ratio,
+        should_invert,
         pixel_data,
     })
 }

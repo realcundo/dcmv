@@ -11,6 +11,7 @@ pub fn convert_to_image(metadata: &DicomMetadata) -> Result<DynamicImage> {
         rescale_intercept,
         window_center,
         window_width,
+        should_invert,
         pixel_data,
         ..
     } = metadata;
@@ -26,6 +27,8 @@ pub fn convert_to_image(metadata: &DicomMetadata) -> Result<DynamicImage> {
             _ => (rescaled / 4095.0).clamp(0.0, 1.0)
         };
         let gray = (normalized * 255.0).clamp(0.0, 255.0) as u8;
+        // Invert for MONOCHROME1 (min value = white, max value = black)
+        let gray = if *should_invert { 255u8.saturating_sub(gray) } else { gray };
         [gray, gray, gray]
     }).collect();
 
