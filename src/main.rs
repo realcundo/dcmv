@@ -47,17 +47,17 @@ fn process_file(file_path: &std::path::Path, args: &Args) -> Result<()> {
     // Open and parse DICOM file
     let obj = dicom::open_dicom_file(file_path)?;
 
-    // Display metadata if verbose (between filename and image)
-    if args.verbose {
-        dicom::print_metadata(&obj);
-    }
-
-    // Extract DICOM data
+    // Extract DICOM data (parses everything once)
     let metadata = dicom::extract_dicom_data(
         &obj,
         args.window_center,
         args.window_width,
     )?;
+
+    // Display metadata if verbose (between filename and image)
+    if args.verbose {
+        dcmv::print_metadata(&metadata);
+    }
 
     // Convert to image
     let image = image::convert_to_image(&metadata)?;

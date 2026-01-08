@@ -8,7 +8,6 @@ use dicom::object::{
 };
 use dicom::encoding::TransferSyntaxIndex;
 use dicom_transfer_syntax_registry::TransferSyntaxRegistry;
-use dicom_object::Tag;
 use dicom_pixeldata::PixelDecoder;
 use std::str::FromStr;
 
@@ -65,6 +64,20 @@ impl PhotometricInterpretation {
     }
 }
 
+impl std::fmt::Display for PhotometricInterpretation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Monochrome1 => write!(f, "MONOCHROME1"),
+            Self::Monochrome2 => write!(f, "MONOCHROME2"),
+            Self::Rgb => write!(f, "RGB"),
+            Self::YbrFull => write!(f, "YBR_FULL"),
+            Self::YbrFull422 => write!(f, "YBR_FULL_422"),
+            Self::Palette => write!(f, "PALETTE COLOR"),
+            Self::Unknown(s) => write!(f, "{}", s),
+        }
+    }
+}
+
 /// DICOM image metadata extracted from the file
 #[derive(Debug, Clone)]
 pub struct DicomMetadata {
@@ -89,6 +102,19 @@ pub struct DicomMetadata {
 
     // Raw pixel data as bytes (supports both 8-bit RGB and 16-bit grayscale)
     pub pixel_data: Vec<u8>,
+
+    // Display metadata fields
+    pub patient_name: Option<String>,
+    pub patient_id: Option<String>,
+    pub patient_birth_date: Option<String>,
+    pub accession_number: Option<String>,
+    pub study_date: Option<String>,
+    pub study_description: Option<String>,
+    pub modality: Option<String>,
+    pub series_description: Option<String>,
+    pub slice_thickness: Option<f64>,
+    pub sop_class: Option<(String, String)>,     // (uid, name)
+    pub transfer_syntax: (String, String),       // (uid, name) - always present
 }
 
 /// Open and parse a DICOM file
@@ -185,6 +211,68 @@ pub fn extract_dicom_data(
         .get(tags::PLANAR_CONFIGURATION)
         .and_then(|e| e.to_int::<u16>().ok());
 
+    // Extract patient info
+    let patient_name = obj
+        .get(tags::PATIENT_NAME)
+        .and_then(|e| e.value().to_str().ok())
+        .map(|s| s.to_string());
+    let patient_id = obj
+        .get(tags::PATIENT_ID)
+        .and_then(|e| e.value().to_str().ok())
+        .map(|s| s.to_string());
+    let patient_birth_date = obj
+        .get(tags::PATIENT_BIRTH_DATE)
+        .and_then(|e| e.value().to_str().ok())
+        .map(|s| s.to_string());
+
+    // Extract study info
+    let accession_number = obj
+        .get(tags::ACCESSION_NUMBER)
+        .and_then(|e| e.value().to_str().ok())
+        .map(|s| s.to_string());
+    let study_date = obj
+        .get(tags::STUDY_DATE)
+        .and_then(|e| e.value().to_str().ok())
+        .map(|s| s.to_string());
+    let study_description = obj
+        .get(tags::STUDY_DESCRIPTION)
+        .and_then(|e| e.value().to_str().ok())
+        .map(|s| s.to_string());
+    let modality = obj
+        .get(tags::MODALITY)
+        .and_then(|e| e.value().to_str().ok())
+        .map(|s| s.to_string());
+
+    // Extract series info
+    let series_description = obj
+        .get(tags::SERIES_DESCRIPTION)
+        .and_then(|e| e.value().to_str().ok())
+        .map(|s| s.to_string());
+
+    // Extract image info
+    let slice_thickness = obj
+        .get(tags::SLICE_THICKNESS)
+        .and_then(|e| e.to_float64().ok());
+
+    // Extract SOP Class UID with lookup
+    use dicom_dictionary_std::sop_class;
+    let sop_class = obj
+        .get(tags::SOP_CLASS_UID)
+        .and_then(|e| e.value().to_str().ok())
+        .and_then(|uid| {
+            sop_class::StandardSopClassDictionary
+                .by_uid(&uid)
+                .map(|entry| (uid.to_string(), entry.name.to_string()))
+        });
+
+    // Extract Transfer Syntax from meta header (always present)
+    let transfer_syntax_uid = obj.meta().transfer_syntax().to_string();
+    let transfer_syntax_name = TransferSyntaxRegistry
+        .get(&transfer_syntax_uid)
+        .map(|ts| ts.name().to_string())
+        .unwrap_or_else(|| "Unknown".to_string());
+    let transfer_syntax = (transfer_syntax_uid, transfer_syntax_name);
+
     // Decode pixel data (handles both compressed and uncompressed)
     let decoded_pixel_data = obj.decode_pixel_data()
         .context("Failed to decode pixel data")?;
@@ -241,119 +329,18 @@ pub fn extract_dicom_data(
         pixel_representation,
         planar_configuration,
         pixel_data,
+        patient_name,
+        patient_id,
+        patient_birth_date,
+        accession_number,
+        study_date,
+        study_description,
+        modality,
+        series_description,
+        slice_thickness,
+        sop_class,
+        transfer_syntax,
     })
-}
-
-/// Print DICOM metadata to stdout
-pub fn print_metadata(obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>) {
-    use dicom::dictionary_std::tags;
-
-    // Patient info
-    print_tag(obj, tags::PATIENT_NAME, "Patient Name");
-    print_tag(obj, tags::PATIENT_ID, "Patient ID");
-    print_tag(obj, tags::PATIENT_BIRTH_DATE, "Birth Date");
-
-    // Study info
-    print_tag(obj, tags::ACCESSION_NUMBER, "Accession Number");
-    print_tag(obj, tags::STUDY_DATE, "Study Date");
-    print_tag(obj, tags::STUDY_DESCRIPTION, "Study Description");
-    print_tag(obj, tags::MODALITY, "Modality");
-
-    // Series info
-    print_tag(obj, tags::SERIES_DESCRIPTION, "Series Description");
-
-    // Image info
-    print_dimensions(obj);
-    print_pixel_aspect_ratio(obj);
-    print_sop_class_uid(obj);
-    print_transfer_syntax_uid(obj);
-    print_tag(obj, tags::SLICE_THICKNESS, "Slice Thickness");
-
-    println!();
-}
-
-fn print_tag(
-    obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
-    tag: Tag,
-    name: &str,
-) {
-    if let Some(elem) = obj.get(tag) {
-        // Try to get string representation
-        match elem.value().to_str() {
-            Ok(s) => println!("{:20}: {}", name, s),
-            Err(_) => println!("{:20}: {:?}", name, elem.value()),
-        }
-    }
-}
-
-/// Print dimensions as "WIDTHxHEIGHT" combining rows and columns
-fn print_dimensions(obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>) {
-    use dicom::dictionary_std::tags;
-
-    let cols = obj.get(tags::COLUMNS).and_then(|e| e.value().to_str().ok());
-    let rows = obj.get(tags::ROWS).and_then(|e| e.value().to_str().ok());
-
-    match (cols, rows) {
-        (Some(c), Some(r)) => println!("{:20}: {}x{}", "Dimensions", c, r),
-        (Some(c), None) => println!("{:20}: {}", "Dimensions", c),
-        (None, Some(r)) => println!("{:20}: {}", "Dimensions", r),
-        (None, None) => {},
-    }
-}
-
-/// Print pixel aspect ratio in a readable format (e.g., "1:1" instead of "1\1")
-/// DICOM tag (0028,0034) stores two integers: vertical\horizontal
-fn print_pixel_aspect_ratio(obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>) {
-    use dicom::dictionary_std::tags;
-
-    if let Some(elem) = obj.get(tags::PIXEL_ASPECT_RATIO) {
-        match elem.value().to_str() {
-            Ok(s) => {
-                // Parse the two values separated by backslash
-                if let Some((vertical, horizontal)) = s.split_once('\\') {
-                    println!("{:20}: {}:{}", "Pixel Aspect Ratio", vertical.trim(), horizontal.trim());
-                } else {
-                    println!("{:20}: {}", "Pixel Aspect Ratio", s);
-                }
-            }
-            Err(_) => println!("{:20}: {:?}", "Pixel Aspect Ratio", elem.value()),
-        }
-    }
-}
-
-/// Print SOP Class UID with human-readable name from the DICOM dictionary
-fn print_sop_class_uid(obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>) {
-    use dicom::dictionary_std::tags;
-    use dicom_dictionary_std::sop_class;
-
-    if let Some(elem) = obj.get(tags::SOP_CLASS_UID) {
-        match elem.value().to_str() {
-            Ok(uid) => {
-                // Look up human-readable name in SOP class dictionary
-                let name = sop_class::StandardSopClassDictionary
-                    .by_uid(&uid)
-                    .map(|entry| entry.name)
-                    .unwrap_or("Unknown");
-
-                println!("{:20}: {} ({})", "SOP Class UID", name, uid);
-            }
-            Err(_) => println!("{:20}: {:?}", "SOP Class UID", elem.value()),
-        }
-    }
-}
-
-/// Print Transfer Syntax UID with human-readable name from the DICOM dictionary
-fn print_transfer_syntax_uid(obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>) {
-    // Get transfer syntax from meta header
-    let uid = obj.meta().transfer_syntax();
-
-    // Look up human-readable name in transfer syntax registry
-    let name = TransferSyntaxRegistry
-        .get(uid)
-        .map(|ts| ts.name())
-        .unwrap_or("Unknown");
-
-    println!("{:20}: {} ({})", "Transfer Syntax", name, uid);
 }
 
 #[cfg(test)]
