@@ -24,25 +24,33 @@ pub fn convert_to_image(metadata: &DicomMetadata) -> Result<DynamicImage> {
 fn convert_grayscale(metadata: &DicomMetadata) -> Result<DynamicImage> {
     let pixel_data = extract_grayscale_pixels(metadata)?;
 
+    // First pass: calculate min and max from rescaled pixel values
+    let (min_val, max_val) = pixel_data.iter()
+        .map(|&pixel| (pixel as f64 * metadata.rescale_slope) + metadata.rescale_intercept)
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), val| {
+            (min.min(val), max.max(val))
+        });
+
+    // Handle edge case: all pixels have the same value
+    let range = if max_val > min_val {
+        max_val - min_val
+    } else {
+        1.0 // Prevent division by zero, all pixels will map to middle gray
+    };
+
+    // Pre-calculate inversion flag (avoid calling method for every pixel)
+    let should_invert = metadata.photometric_interpretation.should_invert();
+
+    // Second pass: normalize pixels to 0-255 range
     let rgb_pixels: Vec<u8> = pixel_data.iter().flat_map(|&pixel| {
         let rescaled = (pixel as f64 * metadata.rescale_slope) + metadata.rescale_intercept;
-        let normalized = match (metadata.window_center, metadata.window_width) {
-            (Some(wc), Some(ww)) => {
-                let ww_f64 = ww.max(1.0);
-                let val = (rescaled - wc) / ww_f64 + 0.5;
-                val.clamp(0.0, 1.0)
-            }
-            _ => {
-                // For 16-bit data, normalize to 4095.0 (common CT range)
-                // For 8-bit data, normalize to 255.0
-                let max_val = if metadata.bits_allocated == 8 { 255.0 } else { 4095.0 };
-                (rescaled / max_val).clamp(0.0, 1.0)
-            }
-        };
+
+        // Map [min_val, max_val] to [0, 255]
+        let normalized = (rescaled - min_val) / range;
         let gray = (normalized * 255.0).clamp(0.0, 255.0) as u8;
 
-        // Invert for MONOCHROME1
-        let gray = if metadata.photometric_interpretation.should_invert() {
+        // Invert for MONOCHROME1 (min=white, max=black)
+        let gray = if should_invert {
             255u8.saturating_sub(gray)
         } else {
             gray

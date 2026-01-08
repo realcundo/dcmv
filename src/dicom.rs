@@ -85,8 +85,6 @@ pub struct DicomMetadata {
     pub cols: u16,
     pub rescale_slope: f64,
     pub rescale_intercept: f64,
-    pub window_center: Option<f64>,
-    pub window_width: Option<f64>,
     pub pixel_aspect_ratio: Option<(f64, f64)>, // (vertical, horizontal)
 
     // Photometric interpretation and color space
@@ -126,8 +124,6 @@ pub fn open_dicom_file(file_path: &std::path::Path) -> Result<FileDicomObject<In
 /// Extract metadata and pixel data from a DICOM object
 pub fn extract_dicom_data(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
-    user_window_center: Option<f64>,
-    user_window_width: Option<f64>,
 ) -> Result<DicomMetadata> {
     use dicom::dictionary_std::tags;
 
@@ -152,17 +148,6 @@ pub fn extract_dicom_data(
         .get(tags::RESCALE_INTERCEPT)
         .and_then(|e| e.to_float64().ok())
         .unwrap_or(0.0);
-
-    // Get window parameters from DICOM if not provided by user
-    let window_center = user_window_center.or_else(|| {
-        obj.get(tags::WINDOW_CENTER)
-            .and_then(|e| e.to_float64().ok())
-    });
-
-    let window_width = user_window_width.or_else(|| {
-        obj.get(tags::WINDOW_WIDTH)
-            .and_then(|e| e.to_float64().ok())
-    });
 
     // Get pixel aspect ratio (vertical\horizontal)
     let pixel_aspect_ratio = obj
@@ -319,8 +304,6 @@ pub fn extract_dicom_data(
         cols,
         rescale_slope,
         rescale_intercept,
-        window_center,
-        window_width,
         pixel_aspect_ratio,
         photometric_interpretation,
         samples_per_pixel,
@@ -352,7 +335,7 @@ mod tests {
     fn test_file1_metadata() {
         let file_path = Path::new(".test-files/file1.dcm");
         let obj = open_dicom_file(file_path).expect("Failed to open file1.dcm");
-        let metadata = extract_dicom_data(&obj, None, None).expect("Failed to extract data from file1.dcm");
+        let metadata = extract_dicom_data(&obj).expect("Failed to extract data from file1.dcm");
 
         // Image dimensions
         assert_eq!(metadata.rows, 1855);
@@ -405,7 +388,7 @@ mod tests {
     fn test_file2_metadata() {
         let file_path = Path::new(".test-files/file2.dcm");
         let obj = open_dicom_file(file_path).expect("Failed to open file2.dcm");
-        let metadata = extract_dicom_data(&obj, None, None).expect("Failed to extract data from file2.dcm");
+        let metadata = extract_dicom_data(&obj).expect("Failed to extract data from file2.dcm");
 
         // Image dimensions (RGB)
         assert_eq!(metadata.rows, 192);
@@ -455,7 +438,7 @@ mod tests {
     fn test_file3_metadata() {
         let file_path = Path::new(".test-files/file3.dcm");
         let obj = open_dicom_file(file_path).expect("Failed to open file3.dcm");
-        let metadata = extract_dicom_data(&obj, None, None).expect("Failed to extract data from file3.dcm");
+        let metadata = extract_dicom_data(&obj).expect("Failed to extract data from file3.dcm");
 
         // Image dimensions
         assert_eq!(metadata.rows, 4616);

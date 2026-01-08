@@ -20,12 +20,4 @@ pub struct Args {
     /// Show DICOM metadata
     #[arg(short, long)]
     pub verbose: bool,
-
-    /// Window center for contrast adjustment
-    #[arg(long)]
-    pub window_center: Option<f64>,
-
-    /// Window width for contrast adjustment
-    #[arg(long)]
-    pub window_width: Option<f64>,
 }
