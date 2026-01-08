@@ -349,44 +349,154 @@ mod tests {
     use std::path::Path;
 
     #[test]
-    fn test_file1_pixel_data() {
+    fn test_file1_metadata() {
         let file_path = Path::new(".test-files/file1.dcm");
         let obj = open_dicom_file(file_path).expect("Failed to open file1.dcm");
         let metadata = extract_dicom_data(&obj, None, None).expect("Failed to extract data from file1.dcm");
 
-        // Verify pixel data was decoded and is not empty
-        assert!(!metadata.pixel_data.is_empty(), "Pixel data should not be empty for file1.dcm");
+        // Image dimensions
+        assert_eq!(metadata.rows, 1855);
+        assert_eq!(metadata.cols, 1991);
 
-        // Verify basic dimensions are valid
-        assert!(metadata.rows > 0, "Rows should be positive for file1.dcm");
-        assert!(metadata.cols > 0, "Cols should be positive for file1.dcm");
+        // Rescale parameters
+        assert_eq!(metadata.rescale_slope, 1.0);
+        assert_eq!(metadata.rescale_intercept, 0.0);
+
+        // Window parameters (may be present or absent)
+        // Just verify they were extracted without checking specific values
+
+        // Photometric interpretation
+        assert_eq!(metadata.photometric_interpretation, PhotometricInterpretation::Monochrome1);
+        assert_eq!(metadata.samples_per_pixel, 1);
+
+        // Bit depth
+        assert_eq!(metadata.bits_allocated, 16);
+
+        // Planar configuration (should be None for grayscale)
+        assert!(metadata.planar_configuration.is_none());
+
+        // Pixel data
+        assert!(!metadata.pixel_data.is_empty());
+
+        // Display metadata - presence checks only (no personal data)
+        assert!(metadata.patient_name.is_some());
+        assert!(metadata.patient_id.is_some());
+        assert!(metadata.patient_birth_date.is_some());
+        assert!(metadata.accession_number.is_some());
+        assert!(metadata.study_date.is_some());
+        assert!(metadata.study_description.is_some());
+        assert_eq!(metadata.modality.as_deref(), Some("CR"));
+
+        // SOP class and transfer syntax
+        assert!(metadata.sop_class.is_some());
+        let (uid, name) = metadata.sop_class.as_ref().unwrap();
+        assert_eq!(uid, "1.2.840.10008.5.1.4.1.1.1");
+        assert_eq!(name, "Computed Radiography Image Storage");
+
+        let (ts_uid, ts_name) = &metadata.transfer_syntax;
+        assert_eq!(ts_uid, "1.2.840.10008.1.2");
+        assert_eq!(ts_name, "Implicit VR Little Endian");
+
+        // Display trait
+        assert_eq!(metadata.photometric_interpretation.to_string(), "MONOCHROME1");
     }
 
     #[test]
-    fn test_file2_pixel_data() {
+    fn test_file2_metadata() {
         let file_path = Path::new(".test-files/file2.dcm");
         let obj = open_dicom_file(file_path).expect("Failed to open file2.dcm");
         let metadata = extract_dicom_data(&obj, None, None).expect("Failed to extract data from file2.dcm");
 
-        // Verify pixel data was decoded and is not empty
-        assert!(!metadata.pixel_data.is_empty(), "Pixel data should not be empty for file2.dcm");
+        // Image dimensions (RGB)
+        assert_eq!(metadata.rows, 192);
+        assert_eq!(metadata.cols, 160);
 
-        // Verify basic dimensions are valid
-        assert!(metadata.rows > 0, "Rows should be positive for file2.dcm");
-        assert!(metadata.cols > 0, "Cols should be positive for file2.dcm");
+        // Rescale parameters
+        assert_eq!(metadata.rescale_slope, 1.0);
+        assert_eq!(metadata.rescale_intercept, 0.0);
+
+        // Photometric interpretation (RGB)
+        assert_eq!(metadata.photometric_interpretation, PhotometricInterpretation::Rgb);
+        assert_eq!(metadata.samples_per_pixel, 3);
+
+        // Bit depth (RGB is typically 8-bit)
+        assert_eq!(metadata.bits_allocated, 8);
+
+        // Planar configuration (should be Some for RGB)
+        assert!(metadata.planar_configuration.is_some());
+
+        // Pixel data
+        assert!(!metadata.pixel_data.is_empty());
+
+        // Display metadata - presence checks only (no personal data)
+        assert!(metadata.patient_name.is_some());
+        assert!(metadata.patient_id.is_some());
+        assert!(metadata.patient_birth_date.is_some());
+        assert!(metadata.accession_number.is_some());
+        assert!(metadata.study_date.is_some());
+        assert!(metadata.study_description.is_some());
+        assert_eq!(metadata.modality.as_deref(), Some("MR"));
+
+        // SOP class and transfer syntax
+        assert!(metadata.sop_class.is_some());
+        let (uid, name) = metadata.sop_class.as_ref().unwrap();
+        assert_eq!(uid, "1.2.840.10008.5.1.4.1.1.4");
+        assert_eq!(name, "MR Image Storage");
+
+        let (ts_uid, ts_name) = &metadata.transfer_syntax;
+        assert_eq!(ts_uid, "1.2.840.10008.1.2.1");
+        assert_eq!(ts_name, "Explicit VR Little Endian");
+
+        // Display trait
+        assert_eq!(metadata.photometric_interpretation.to_string(), "RGB");
     }
 
     #[test]
-    fn test_file3_pixel_data() {
+    fn test_file3_metadata() {
         let file_path = Path::new(".test-files/file3.dcm");
         let obj = open_dicom_file(file_path).expect("Failed to open file3.dcm");
         let metadata = extract_dicom_data(&obj, None, None).expect("Failed to extract data from file3.dcm");
 
-        // Verify pixel data was decoded and is not empty
-        assert!(!metadata.pixel_data.is_empty(), "Pixel data should not be empty for file3.dcm");
+        // Image dimensions
+        assert_eq!(metadata.rows, 4616);
+        assert_eq!(metadata.cols, 3016);
 
-        // Verify basic dimensions are valid
-        assert!(metadata.rows > 0, "Rows should be positive for file3.dcm");
-        assert!(metadata.cols > 0, "Cols should be positive for file3.dcm");
+        // Rescale parameters
+        assert_eq!(metadata.rescale_slope, 1.0);
+        assert_eq!(metadata.rescale_intercept, 0.0);
+
+        // Photometric interpretation
+        assert_eq!(metadata.photometric_interpretation, PhotometricInterpretation::Monochrome2);
+        assert_eq!(metadata.samples_per_pixel, 1);
+
+        // Bit depth
+        assert_eq!(metadata.bits_allocated, 16);
+
+        // Planar configuration (should be None for grayscale)
+        assert!(metadata.planar_configuration.is_none());
+
+        // Pixel data
+        assert!(!metadata.pixel_data.is_empty());
+
+        // Display metadata - presence checks only (no personal data)
+        assert!(metadata.patient_name.is_some());
+        assert!(metadata.patient_id.is_some());
+        assert!(metadata.patient_birth_date.is_some());
+        assert!(metadata.accession_number.is_some());
+        assert!(metadata.study_date.is_some());
+        assert!(metadata.modality.is_some());
+
+        // SOP class and transfer syntax
+        assert!(metadata.sop_class.is_some());
+        let (uid, name) = metadata.sop_class.as_ref().unwrap();
+        assert_eq!(uid, "1.2.840.10008.5.1.4.1.1.1.2");
+        assert_eq!(name, "Digital Mammography X-Ray Image Storage - For Presentation");
+
+        let (ts_uid, ts_name) = &metadata.transfer_syntax;
+        assert_eq!(ts_uid, "1.2.840.10008.1.2");
+        assert_eq!(ts_name, "Implicit VR Little Endian");
+
+        // Display trait
+        assert_eq!(metadata.photometric_interpretation.to_string(), "MONOCHROME2");
     }
 }
