@@ -10,6 +10,7 @@ use dicom::encoding::TransferSyntaxIndex;
 use dicom_transfer_syntax_registry::TransferSyntaxRegistry;
 use dicom_object::Tag;
 use dicom_pixeldata::PixelDecoder;
+use std::str::FromStr;
 
 /// Photometric interpretation describes the color space of pixel data
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,10 +31,12 @@ pub enum PhotometricInterpretation {
     Unknown(String),
 }
 
-impl PhotometricInterpretation {
+impl FromStr for PhotometricInterpretation {
+    type Err = ();
+
     /// Parse photometric interpretation from DICOM string
-    pub fn from_str(s: &str) -> Self {
-        match s.trim() {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s.trim() {
             "MONOCHROME1" => Self::Monochrome1,
             "MONOCHROME2" => Self::Monochrome2,
             "RGB" => Self::Rgb,
@@ -41,9 +44,11 @@ impl PhotometricInterpretation {
             "YBR_FULL_422" => Self::YbrFull422,
             "PALETTE COLOR" => Self::Palette,
             other => Self::Unknown(other.to_string()),
-        }
+        })
     }
+}
 
+impl PhotometricInterpretation {
     /// Check if this is a grayscale interpretation
     pub fn is_grayscale(&self) -> bool {
         matches!(self, Self::Monochrome1 | Self::Monochrome2)
@@ -148,7 +153,7 @@ pub fn extract_dicom_data(
     let photometric_interpretation = obj
         .get(tags::PHOTOMETRIC_INTERPRETATION)
         .and_then(|e| e.value().to_str().ok())
-        .map(|s| PhotometricInterpretation::from_str(&s))
+        .map(|s| PhotometricInterpretation::from_str(&s).unwrap())
         .unwrap_or(PhotometricInterpretation::Monochrome2); // Default
 
     // Get samples per pixel (1 for grayscale, 3 for RGB)
@@ -185,8 +190,17 @@ pub fn extract_dicom_data(
         .context("Failed to decode pixel data")?;
 
     // Get raw pixel data as bytes (supports both 8-bit RGB and 16-bit grayscale)
-    let pixel_data = decoded_pixel_data.to_vec::<u8>()
-        .context("Failed to convert pixel data to bytes")?;
+    // For 16-bit grayscale, we need to use u16, then convert to bytes
+    let pixel_data = if bits_allocated == 16 {
+        decoded_pixel_data.to_vec::<u16>()
+            .context("Failed to convert 16-bit pixel data")?
+            .iter()
+            .flat_map(|&v| v.to_le_bytes())
+            .collect()
+    } else {
+        decoded_pixel_data.to_vec::<u8>()
+            .context("Failed to convert pixel data to bytes")?
+    };
 
     // Validate photometric interpretation matches samples per pixel
     let is_valid = match (&photometric_interpretation, samples_per_pixel) {
@@ -340,4 +354,52 @@ fn print_transfer_syntax_uid(obj: &FileDicomObject<InMemDicomObject<StandardData
         .unwrap_or("Unknown");
 
     println!("{:20}: {} ({})", "Transfer Syntax", name, uid);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn test_file1_pixel_data() {
+        let file_path = Path::new(".test-files/file1.dcm");
+        let obj = open_dicom_file(file_path).expect("Failed to open file1.dcm");
+        let metadata = extract_dicom_data(&obj, None, None).expect("Failed to extract data from file1.dcm");
+
+        // Verify pixel data was decoded and is not empty
+        assert!(!metadata.pixel_data.is_empty(), "Pixel data should not be empty for file1.dcm");
+
+        // Verify basic dimensions are valid
+        assert!(metadata.rows > 0, "Rows should be positive for file1.dcm");
+        assert!(metadata.cols > 0, "Cols should be positive for file1.dcm");
+    }
+
+    #[test]
+    fn test_file2_pixel_data() {
+        let file_path = Path::new(".test-files/file2.dcm");
+        let obj = open_dicom_file(file_path).expect("Failed to open file2.dcm");
+        let metadata = extract_dicom_data(&obj, None, None).expect("Failed to extract data from file2.dcm");
+
+        // Verify pixel data was decoded and is not empty
+        assert!(!metadata.pixel_data.is_empty(), "Pixel data should not be empty for file2.dcm");
+
+        // Verify basic dimensions are valid
+        assert!(metadata.rows > 0, "Rows should be positive for file2.dcm");
+        assert!(metadata.cols > 0, "Cols should be positive for file2.dcm");
+    }
+
+    #[test]
+    fn test_file3_pixel_data() {
+        let file_path = Path::new(".test-files/file3.dcm");
+        let obj = open_dicom_file(file_path).expect("Failed to open file3.dcm");
+        let metadata = extract_dicom_data(&obj, None, None).expect("Failed to extract data from file3.dcm");
+
+        // Verify pixel data was decoded and is not empty
+        assert!(!metadata.pixel_data.is_empty(), "Pixel data should not be empty for file3.dcm");
+
+        // Verify basic dimensions are valid
+        assert!(metadata.rows > 0, "Rows should be positive for file3.dcm");
+        assert!(metadata.cols > 0, "Cols should be positive for file3.dcm");
+    }
 }

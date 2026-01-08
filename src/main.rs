@@ -1,11 +1,9 @@
-mod cli;
-mod dicom;
-mod image;
-mod display;
-
 use anyhow::Result;
 use clap::Parser;
-use cli::Args;
+use dcmv::cli::Args;
+use dcmv::dicom;
+use dcmv::image;
+use dcmv::display;
 
 fn main() -> Result<()> {
     let args = Args::parse();
