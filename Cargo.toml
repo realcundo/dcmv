@@ -14,7 +14,7 @@ dicom-dictionary-std = { version = "0.9.0", features = ["sop-class"] }
 dicom-pixeldata = "0.9.0"
 dicom-transfer-syntax-registry = "0.9.0"
 image = "0.25.9"
-viuer = "0.11.0"
+viuer = {  version="0.11.0", features=["icy_sixel"] }
 
 [profile.release]
 opt-level = 3          # Maximum optimization speed
