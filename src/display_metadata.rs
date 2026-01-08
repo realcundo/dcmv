@@ -29,7 +29,7 @@ pub fn print_metadata(metadata: &DicomMetadata) {
 
 fn print_field(name: &str, value: &Option<String>) {
     if let Some(v) = value {
-        println!("{:20}: {}", name, v);
+        println!("{name:20}: {v}");
     }
 }
 

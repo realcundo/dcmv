@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use dicom::core::dictionary::UidDictionary;
+use dicom::dictionary_std::sop_class;
 use dicom::encoding::TransferSyntaxIndex;
 use dicom::object::{
     open_file,
@@ -7,8 +8,8 @@ use dicom::object::{
     InMemDicomObject,
     StandardDataDictionary
 };
-use dicom::transfer_syntax::TransferSyntaxRegistry;
 use dicom::pixeldata::PixelDecoder;
+use dicom::transfer_syntax::TransferSyntaxRegistry;
 use std::str::FromStr;
 
 /// Photometric interpretation describes the color space of pixel data
@@ -159,8 +160,7 @@ pub fn extract_dicom_data(
     let photometric_interpretation = obj
         .get(tags::PHOTOMETRIC_INTERPRETATION)
         .and_then(|e| e.value().to_str().ok())
-        .map(|s| PhotometricInterpretation::from_str(&s).unwrap())
-        .unwrap_or(PhotometricInterpretation::Monochrome2); // Default
+        .map_or(PhotometricInterpretation::Monochrome2, |s| PhotometricInterpretation::from_str(&s).unwrap()); // Default
 
     // Get samples per pixel (1 for grayscale, 3 for RGB)
     let samples_per_pixel = obj
@@ -223,7 +223,6 @@ pub fn extract_dicom_data(
         .and_then(|e| e.to_float64().ok());
 
     // Extract SOP Class UID with lookup
-    use dicom::dictionary_std::sop_class;
     let sop_class = obj
         .get(tags::SOP_CLASS_UID)
         .and_then(|e| e.value().to_str().ok())
@@ -237,8 +236,7 @@ pub fn extract_dicom_data(
     let transfer_syntax_uid = obj.meta().transfer_syntax().to_string();
     let transfer_syntax_name = TransferSyntaxRegistry
         .get(&transfer_syntax_uid)
-        .map(|ts| ts.name().to_string())
-        .unwrap_or_else(|| "Unknown".to_string());
+        .map_or_else(|| "Unknown".to_string(), |ts| ts.name().to_string());
     let transfer_syntax = (transfer_syntax_uid, transfer_syntax_name);
 
     // Decode pixel data (handles both compressed and uncompressed)
@@ -279,7 +277,7 @@ pub fn extract_dicom_data(
 
     // Validate bits allocated
     if !matches!(bits_allocated, 8 | 16) {
-        anyhow::bail!("Unsupported bits allocated: {}", bits_allocated);
+        anyhow::bail!("Unsupported bits allocated: {bits_allocated}");
     }
 
     Ok(DicomMetadata {

@@ -9,13 +9,12 @@ pub fn print_image(image: &DynamicImage, metadata: &DicomMetadata, args: &Args) 
     // Calculate pixel aspect ratio adjustment factor (defaults to 1.0 = no adjustment)
     // DICOM PAR is (vertical, horizontal): e.g., (1, 1) = square pixels, (2, 1) = pixels 2x taller
     let par_ratio = metadata.pixel_aspect_ratio
-        .map(|(vertical, horizontal)| vertical / horizontal)
-        .unwrap_or(1.0);
+        .map_or(1.0, |(vertical, horizontal)| vertical / horizontal);
 
     // Determine dimensions: prefer width for aspect ratio, adjust height if specified
     let (config_width, config_height) = match (args.width, args.height) {
         (Some(w), ..) => (Some(w), None),
-        (None, Some(h)) => (None, Some((h as f64 * par_ratio).round() as u32)),
+        (None, Some(h)) => (None, Some((f64::from(h) * par_ratio).round() as u32)),
         (None, None) => (Some(24), None),
     };
 
@@ -30,7 +29,7 @@ pub fn print_image(image: &DynamicImage, metadata: &DicomMetadata, args: &Args) 
 
     // Print image
     print(image, &config)
-        .map_err(|e| anyhow!("Failed to display image: {}", e))?;
+        .map_err(|e| anyhow!("Failed to display image: {e}"))?;
 
     Ok(())
 }

@@ -26,7 +26,7 @@ fn main() {
 
         // Process file and handle any errors
         if let Err(e) = process_file(file_path, &args) {
-            eprintln!("Error: {}", e);
+            eprintln!("Error: {e}");
             any_failed = true;
         }
 

@@ -26,7 +26,7 @@ fn convert_grayscale(metadata: &DicomMetadata) -> Result<DynamicImage> {
 
     // First pass: calculate min and max from rescaled pixel values
     let (min_val, max_val) = pixel_data.iter()
-        .map(|&pixel| (pixel as f64 * metadata.rescale_slope) + metadata.rescale_intercept)
+        .map(|&pixel| f64::from(pixel).mul_add(metadata.rescale_slope, metadata.rescale_intercept))
         .fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), val| {
             (min.min(val), max.max(val))
         });
@@ -43,7 +43,7 @@ fn convert_grayscale(metadata: &DicomMetadata) -> Result<DynamicImage> {
 
     // Second pass: normalize pixels to 0-255 range
     let rgb_pixels: Vec<u8> = pixel_data.iter().flat_map(|&pixel| {
-        let rescaled = (pixel as f64 * metadata.rescale_slope) + metadata.rescale_intercept;
+        let rescaled = f64::from(pixel).mul_add(metadata.rescale_slope, metadata.rescale_intercept);
 
         // Map [min_val, max_val] to [0, 255]
         let normalized = (rescaled - min_val) / range;
@@ -60,8 +60,8 @@ fn convert_grayscale(metadata: &DicomMetadata) -> Result<DynamicImage> {
     }).collect();
 
     let rgb_image: RgbImage = ImageBuffer::from_raw(
-        metadata.cols as u32,
-        metadata.rows as u32,
+        u32::from(metadata.cols),
+        u32::from(metadata.rows),
         rgb_pixels
     ).context("Failed to create RGB image buffer")?;
 
@@ -76,8 +76,8 @@ fn convert_rgb(metadata: &DicomMetadata) -> Result<DynamicImage> {
     // Just convert to proper format
 
     let rgb_image: RgbImage = ImageBuffer::from_raw(
-        metadata.cols as u32,
-        metadata.rows as u32,
+        u32::from(metadata.cols),
+        u32::from(metadata.rows),
         pixel_data
     ).context("Failed to create RGB image buffer")?;
 
@@ -89,7 +89,7 @@ fn extract_grayscale_pixels(metadata: &DicomMetadata) -> Result<Vec<u16>> {
     match metadata.bits_allocated {
         8 => {
             // 8-bit grayscale: each byte is a pixel
-            Ok(metadata.pixel_data.iter().map(|&b| b as u16).collect())
+            Ok(metadata.pixel_data.iter().map(|&b| u16::from(b)).collect())
         }
         16 => {
             // 16-bit grayscale: each pair of bytes is a pixel
@@ -148,8 +148,7 @@ fn extract_rgb_pixels(metadata: &DicomMetadata) -> Result<Vec<u8>> {
             Ok(interleaved)
         }
         Some(other) => anyhow::bail!(
-            "Unsupported planar configuration: {}",
-            other
+            "Unsupported planar configuration: {other}"
         ),
     }
 }
