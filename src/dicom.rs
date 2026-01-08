@@ -89,13 +89,8 @@ pub struct DicomMetadata {
 
     // Photometric interpretation and color space
     pub photometric_interpretation: PhotometricInterpretation,
-    #[allow(dead_code)]
     pub samples_per_pixel: u16,        // 1 for grayscale, 3 for RGB
     pub bits_allocated: u16,            // 8 or 16
-    #[allow(dead_code)]
-    pub bits_stored: u16,               // Significant bits
-    #[allow(dead_code)]
-    pub pixel_representation: u16,      // 0 = unsigned, 1 = signed
     pub planar_configuration: Option<u16>, // 0 = interleaved, 1 = planar (RGB only)
 
     // Raw pixel data as bytes (supports both 8-bit RGB and 16-bit grayscale)
@@ -178,18 +173,6 @@ pub fn extract_dicom_data(
         .get(tags::BITS_ALLOCATED)
         .and_then(|e| e.to_int::<u16>().ok())
         .unwrap_or(16); // Default to 16
-
-    // Get bits stored (significant bits)
-    let bits_stored = obj
-        .get(tags::BITS_STORED)
-        .and_then(|e| e.to_int::<u16>().ok())
-        .unwrap_or(bits_allocated); // Default to bits_allocated
-
-    // Get pixel representation (0=unsigned, 1=signed)
-    let pixel_representation = obj
-        .get(tags::PIXEL_REPRESENTATION)
-        .and_then(|e| e.to_int::<u16>().ok())
-        .unwrap_or(0); // Default to unsigned
 
     // Get planar configuration (for RGB only)
     let planar_configuration = obj
@@ -308,8 +291,6 @@ pub fn extract_dicom_data(
         photometric_interpretation,
         samples_per_pixel,
         bits_allocated,
-        bits_stored,
-        pixel_representation,
         planar_configuration,
         pixel_data,
         patient_name,
