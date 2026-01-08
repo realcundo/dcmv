@@ -11,6 +11,55 @@ use dicom_transfer_syntax_registry::TransferSyntaxRegistry;
 use dicom_object::Tag;
 use dicom_pixeldata::PixelDecoder;
 
+/// Photometric interpretation describes the color space of pixel data
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PhotometricInterpretation {
+    /// Grayscale where min value = white, max value = black
+    Monochrome1,
+    /// Grayscale where min value = black, max value = white
+    Monochrome2,
+    /// RGB color space (interleaved or planar)
+    Rgb,
+    /// RGB stored in YCbCr color space (future)
+    YbrFull,
+    /// YCbCr for JPEG (future)
+    YbrFull422,
+    /// Palette color (future)
+    Palette,
+    /// Unknown photometric interpretation
+    Unknown(String),
+}
+
+impl PhotometricInterpretation {
+    /// Parse photometric interpretation from DICOM string
+    pub fn from_str(s: &str) -> Self {
+        match s.trim() {
+            "MONOCHROME1" => Self::Monochrome1,
+            "MONOCHROME2" => Self::Monochrome2,
+            "RGB" => Self::Rgb,
+            "YBR_FULL" => Self::YbrFull,
+            "YBR_FULL_422" => Self::YbrFull422,
+            "PALETTE COLOR" => Self::Palette,
+            other => Self::Unknown(other.to_string()),
+        }
+    }
+
+    /// Check if this is a grayscale interpretation
+    pub fn is_grayscale(&self) -> bool {
+        matches!(self, Self::Monochrome1 | Self::Monochrome2)
+    }
+
+    /// Check if this is an RGB interpretation
+    pub fn is_rgb(&self) -> bool {
+        matches!(self, Self::Rgb)
+    }
+
+    /// Check if pixel values should be inverted (MONOCHROME1)
+    pub fn should_invert(&self) -> bool {
+        matches!(self, Self::Monochrome1)
+    }
+}
+
 /// DICOM image metadata extracted from the file
 #[derive(Debug, Clone)]
 pub struct DicomMetadata {
@@ -21,8 +70,20 @@ pub struct DicomMetadata {
     pub window_center: Option<f64>,
     pub window_width: Option<f64>,
     pub pixel_aspect_ratio: Option<(f64, f64)>, // (vertical, horizontal)
-    pub should_invert: bool,                     // true for MONOCHROME1, false for MONOCHROME2
-    pub pixel_data: Vec<u16>,
+
+    // Photometric interpretation and color space
+    pub photometric_interpretation: PhotometricInterpretation,
+    #[allow(dead_code)]
+    pub samples_per_pixel: u16,        // 1 for grayscale, 3 for RGB
+    pub bits_allocated: u16,            // 8 or 16
+    #[allow(dead_code)]
+    pub bits_stored: u16,               // Significant bits
+    #[allow(dead_code)]
+    pub pixel_representation: u16,      // 0 = unsigned, 1 = signed
+    pub planar_configuration: Option<u16>, // 0 = interleaved, 1 = planar (RGB only)
+
+    // Raw pixel data as bytes (supports both 8-bit RGB and 16-bit grayscale)
+    pub pixel_data: Vec<u8>,
 }
 
 /// Open and parse a DICOM file
@@ -83,21 +144,73 @@ pub fn extract_dicom_data(
             Some((vertical, horizontal))
         });
 
-    // Get photometric interpretation to determine if pixel values should be inverted
-    // MONOCHROME1 = inverted (min value = white, max value = black)
-    // MONOCHROME2 = normal (min value = black, max value = white)
-    let should_invert = obj
+    // Parse photometric interpretation
+    let photometric_interpretation = obj
         .get(tags::PHOTOMETRIC_INTERPRETATION)
         .and_then(|e| e.value().to_str().ok())
-        .map(|s| s.trim() == "MONOCHROME1" || s.trim() == "MONOCHROME1 ")
-        .unwrap_or(false);
+        .map(|s| PhotometricInterpretation::from_str(&s))
+        .unwrap_or(PhotometricInterpretation::Monochrome2); // Default
+
+    // Get samples per pixel (1 for grayscale, 3 for RGB)
+    let samples_per_pixel = obj
+        .get(tags::SAMPLES_PER_PIXEL)
+        .and_then(|e| e.to_int::<u16>().ok())
+        .unwrap_or(1); // Default to 1 (grayscale)
+
+    // Get bits allocated (8 or 16)
+    let bits_allocated = obj
+        .get(tags::BITS_ALLOCATED)
+        .and_then(|e| e.to_int::<u16>().ok())
+        .unwrap_or(16); // Default to 16
+
+    // Get bits stored (significant bits)
+    let bits_stored = obj
+        .get(tags::BITS_STORED)
+        .and_then(|e| e.to_int::<u16>().ok())
+        .unwrap_or(bits_allocated); // Default to bits_allocated
+
+    // Get pixel representation (0=unsigned, 1=signed)
+    let pixel_representation = obj
+        .get(tags::PIXEL_REPRESENTATION)
+        .and_then(|e| e.to_int::<u16>().ok())
+        .unwrap_or(0); // Default to unsigned
+
+    // Get planar configuration (for RGB only)
+    let planar_configuration = obj
+        .get(tags::PLANAR_CONFIGURATION)
+        .and_then(|e| e.to_int::<u16>().ok());
 
     // Decode pixel data (handles both compressed and uncompressed)
     let decoded_pixel_data = obj.decode_pixel_data()
         .context("Failed to decode pixel data")?;
 
-    // Get raw pixel data as u16 (without rescaling/VOI LUT applied)
-    let pixel_data = decoded_pixel_data.data_ow();
+    // Get raw pixel data as bytes (supports both 8-bit RGB and 16-bit grayscale)
+    let pixel_data = decoded_pixel_data.to_vec::<u8>()
+        .context("Failed to convert pixel data to bytes")?;
+
+    // Validate photometric interpretation matches samples per pixel
+    let is_valid = match (&photometric_interpretation, samples_per_pixel) {
+        (pi, 1) if pi.is_grayscale() => true,
+        (pi, 3) if pi.is_rgb() => true,
+        _ => false,
+    };
+
+    if !is_valid {
+        anyhow::bail!(
+            "Inconsistent photometric interpretation {:?} with samples per pixel {}",
+            photometric_interpretation, samples_per_pixel
+        );
+    }
+
+    // Validate planar configuration only for RGB
+    if planar_configuration.is_some() && !photometric_interpretation.is_rgb() {
+        anyhow::bail!("Planar configuration should only be present for RGB images");
+    }
+
+    // Validate bits allocated
+    if !matches!(bits_allocated, 8 | 16) {
+        anyhow::bail!("Unsupported bits allocated: {}", bits_allocated);
+    }
 
     Ok(DicomMetadata {
         rows,
@@ -107,7 +220,12 @@ pub fn extract_dicom_data(
         window_center,
         window_width,
         pixel_aspect_ratio,
-        should_invert,
+        photometric_interpretation,
+        samples_per_pixel,
+        bits_allocated,
+        bits_stored,
+        pixel_representation,
+        planar_configuration,
         pixel_data,
     })
 }

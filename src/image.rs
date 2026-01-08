@@ -1,38 +1,147 @@
 use anyhow::{Context, Result};
 use image::{DynamicImage, ImageBuffer, RgbImage};
-use crate::dicom::DicomMetadata;
+use crate::dicom::{DicomMetadata, PhotometricInterpretation};
 
 /// Convert DICOM pixel data to a DynamicImage
 pub fn convert_to_image(metadata: &DicomMetadata) -> Result<DynamicImage> {
-    let DicomMetadata {
-        rows,
-        cols,
-        rescale_slope,
-        rescale_intercept,
-        window_center,
-        window_width,
-        should_invert,
-        pixel_data,
-        ..
-    } = metadata;
+    match metadata.photometric_interpretation {
+        PhotometricInterpretation::Monochrome1 | PhotometricInterpretation::Monochrome2 => {
+            convert_grayscale(metadata)
+        }
+        PhotometricInterpretation::Rgb => {
+            convert_rgb(metadata)
+        }
+        _ => {
+            anyhow::bail!(
+                "Unsupported photometric interpretation: {:?}",
+                metadata.photometric_interpretation
+            )
+        }
+    }
+}
 
-    let rgb_pixels: Vec<u8> = pixel_data.iter().flat_map(|pixel| {
-        let rescaled = (*pixel as f64 * rescale_slope) + rescale_intercept;
-        let normalized = match (window_center, window_width) {
+/// Convert grayscale DICOM data to RGB image
+fn convert_grayscale(metadata: &DicomMetadata) -> Result<DynamicImage> {
+    let pixel_data = extract_grayscale_pixels(metadata)?;
+
+    let rgb_pixels: Vec<u8> = pixel_data.iter().flat_map(|&pixel| {
+        let rescaled = (pixel as f64 * metadata.rescale_slope) + metadata.rescale_intercept;
+        let normalized = match (metadata.window_center, metadata.window_width) {
             (Some(wc), Some(ww)) => {
                 let ww_f64 = ww.max(1.0);
                 let val = (rescaled - wc) / ww_f64 + 0.5;
                 val.clamp(0.0, 1.0)
             }
-            _ => (rescaled / 4095.0).clamp(0.0, 1.0)
+            _ => {
+                // For 16-bit data, normalize to 4095.0 (common CT range)
+                // For 8-bit data, normalize to 255.0
+                let max_val = if metadata.bits_allocated == 8 { 255.0 } else { 4095.0 };
+                (rescaled / max_val).clamp(0.0, 1.0)
+            }
         };
         let gray = (normalized * 255.0).clamp(0.0, 255.0) as u8;
-        // Invert for MONOCHROME1 (min value = white, max value = black)
-        let gray = if *should_invert { 255u8.saturating_sub(gray) } else { gray };
+
+        // Invert for MONOCHROME1
+        let gray = if metadata.photometric_interpretation.should_invert() {
+            255u8.saturating_sub(gray)
+        } else {
+            gray
+        };
+
         [gray, gray, gray]
     }).collect();
 
-    let rgb_image: RgbImage = ImageBuffer::from_raw(*cols as u32, *rows as u32, rgb_pixels)
-        .context("Failed to create RGB image buffer")?;
+    let rgb_image: RgbImage = ImageBuffer::from_raw(
+        metadata.cols as u32,
+        metadata.rows as u32,
+        rgb_pixels
+    ).context("Failed to create RGB image buffer")?;
+
     Ok(DynamicImage::ImageRgb8(rgb_image))
+}
+
+/// Convert RGB DICOM data to RGB image
+fn convert_rgb(metadata: &DicomMetadata) -> Result<DynamicImage> {
+    let pixel_data = extract_rgb_pixels(metadata)?;
+
+    // For RGB, we don't apply window/level or rescale
+    // Just convert to proper format
+
+    let rgb_image: RgbImage = ImageBuffer::from_raw(
+        metadata.cols as u32,
+        metadata.rows as u32,
+        pixel_data
+    ).context("Failed to create RGB image buffer")?;
+
+    Ok(DynamicImage::ImageRgb8(rgb_image))
+}
+
+/// Extract grayscale pixel data from raw bytes based on bit depth
+fn extract_grayscale_pixels(metadata: &DicomMetadata) -> Result<Vec<u16>> {
+    match metadata.bits_allocated {
+        8 => {
+            // 8-bit grayscale: each byte is a pixel
+            Ok(metadata.pixel_data.iter().map(|&b| b as u16).collect())
+        }
+        16 => {
+            // 16-bit grayscale: each pair of bytes is a pixel
+            if !metadata.pixel_data.len().is_multiple_of(2) {
+                anyhow::bail!("Invalid 16-bit pixel data length");
+            }
+
+            Ok(metadata
+                .pixel_data
+                .chunks_exact(2)
+                .map(|chunk| {
+                    // Little-endian (standard DICOM)
+                    u16::from_le_bytes([chunk[0], chunk[1]])
+                })
+                .collect())
+        }
+        _ => anyhow::bail!(
+            "Unsupported bits allocated for grayscale: {}",
+            metadata.bits_allocated
+        ),
+    }
+}
+
+/// Extract RGB pixel data from raw bytes, handling planar configuration
+fn extract_rgb_pixels(metadata: &DicomMetadata) -> Result<Vec<u8>> {
+    let expected_size = metadata.rows as usize
+        * metadata.cols as usize
+        * 3; // 3 samples per pixel
+
+    if metadata.pixel_data.len() != expected_size {
+        anyhow::bail!(
+            "Invalid RGB pixel data size: expected {} bytes, got {}",
+            expected_size,
+            metadata.pixel_data.len()
+        );
+    }
+
+    match metadata.planar_configuration {
+        None | Some(0) => {
+            // Planar Configuration 0: interleaved RGBRGB...
+            // Already in the format we need
+            Ok(metadata.pixel_data.clone())
+        }
+        Some(1) => {
+            // Planar Configuration 1: planar RRR...GGG...BBB...
+            // Need to reorganize from planar to interleaved
+            let pixel_count = metadata.rows as usize * metadata.cols as usize;
+            let mut interleaved = vec![0u8; expected_size];
+
+            for (i, pixel) in interleaved.chunks_exact_mut(3).enumerate() {
+                pixel[0] = metadata.pixel_data[i];              // R
+                pixel[1] = metadata.pixel_data[pixel_count + i]; // G
+                pixel[2] = metadata.pixel_data[2 * pixel_count + i]; // B
+            }
+
+            Ok(interleaved)
+        }
+        Some(other) => anyhow::bail!(
+            "Unsupported planar configuration: {}",
+            other
+        ),
+    }
 }
