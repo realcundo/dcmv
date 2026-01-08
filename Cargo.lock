@@ -517,6 +517,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
 
 [[package]]
+name = "dcmv"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "criterion",
+ "dicom",
+ "dicom-dictionary-std",
+ "dicom-object",
+ "dicom-pixeldata",
+ "dicom-transfer-syntax-registry",
+ "image",
+ "viuer",
+]
+
+[[package]]
 name = "dicom"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -686,22 +702,6 @@ dependencies = [
  "dicom-transfer-syntax-registry",
  "snafu",
  "tracing",
-]
-
-[[package]]
-name = "dicom-viewer"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "criterion",
- "dicom",
- "dicom-dictionary-std",
- "dicom-object",
- "dicom-pixeldata",
- "dicom-transfer-syntax-registry",
- "image",
- "viuer",
 ]
 
 [[package]]
