@@ -13,10 +13,7 @@ path = "src/lib.rs"
 anyhow = "1.0.100"
 clap = { version = "4.5.54", features = ["derive"] }
 dicom = "0.9.0"
-dicom-object = "0.9.0"
 dicom-dictionary-std = { version = "0.9.0", features = ["sop-class"] }
-dicom-pixeldata = "0.9.0"
-dicom-transfer-syntax-registry = "0.9.0"
 image = "0.25.9"
 viuer = {  version="0.11.0", features=["icy_sixel"] }
 

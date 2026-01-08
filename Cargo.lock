@@ -525,9 +525,6 @@ dependencies = [
  "criterion",
  "dicom",
  "dicom-dictionary-std",
- "dicom-object",
- "dicom-pixeldata",
- "dicom-transfer-syntax-registry",
  "image",
  "viuer",
 ]

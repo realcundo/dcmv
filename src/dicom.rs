@@ -1,14 +1,14 @@
 use anyhow::{Context, Result};
 use dicom::core::dictionary::UidDictionary;
+use dicom::encoding::TransferSyntaxIndex;
 use dicom::object::{
     open_file,
     FileDicomObject,
     InMemDicomObject,
     StandardDataDictionary
 };
-use dicom::encoding::TransferSyntaxIndex;
-use dicom_transfer_syntax_registry::TransferSyntaxRegistry;
-use dicom_pixeldata::PixelDecoder;
+use dicom::transfer_syntax::TransferSyntaxRegistry;
+use dicom::pixeldata::PixelDecoder;
 use std::str::FromStr;
 
 /// Photometric interpretation describes the color space of pixel data
@@ -223,7 +223,7 @@ pub fn extract_dicom_data(
         .and_then(|e| e.to_float64().ok());
 
     // Extract SOP Class UID with lookup
-    use dicom_dictionary_std::sop_class;
+    use dicom::dictionary_std::sop_class;
     let sop_class = obj
         .get(tags::SOP_CLASS_UID)
         .and_then(|e| e.value().to_str().ok())
