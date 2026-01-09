@@ -40,27 +40,32 @@ pub struct DicomMetadata {
 
 // Convenience methods for backward compatibility
 impl DicomMetadata {
+    #[inline(always)]
     #[must_use]
     pub fn rows(&self) -> u16 {
         self.dimensions.rows
     }
 
+    #[inline(always)]
     #[must_use]
     pub fn cols(&self) -> u16 {
         self.dimensions.cols
     }
 
+    #[inline(always)]
     #[must_use]
     pub fn rescale_slope(&self) -> f64 {
         self.rescale.slope
     }
 
+    #[inline(always)]
     #[must_use]
     pub fn rescale_intercept(&self) -> f64 {
         self.rescale.intercept
     }
 
     /// Returns true if this DICOM file uses big-endian byte order
+    #[inline(always)]
     #[must_use]
     #[allow(deprecated)] // Explicit VR Big Endian is retired but still in use
     pub fn is_big_endian(&self) -> bool {

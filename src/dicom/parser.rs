@@ -68,6 +68,7 @@ pub fn extract_pixel_aspect_ratio(
 }
 
 /// Extract number of frames from DICOM object
+#[inline]
 pub fn extract_number_of_frames(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
 ) -> u32 {
@@ -79,6 +80,7 @@ pub fn extract_number_of_frames(
 }
 
 /// Extract samples per pixel from DICOM object
+#[inline]
 pub fn extract_samples_per_pixel(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
 ) -> u16 {
@@ -110,6 +112,7 @@ pub fn extract_bit_depth(
 }
 
 /// Extract planar configuration from DICOM object (for RGB/YCbCr only)
+#[inline]
 pub fn extract_planar_configuration(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
 ) -> Option<u16> {

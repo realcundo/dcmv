@@ -39,6 +39,7 @@ pub fn extract_pixel_data(
 }
 
 /// Detect if transfer syntax uses compression
+#[inline]
 #[must_use]
 fn detect_compression(uid: &str) -> bool {
     uid.contains("1.2.840.10008.1.2.4")   // JPEG family

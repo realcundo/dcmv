@@ -4,6 +4,7 @@
 //! across different bit depths and dynamic ranges.
 
 /// Find min and max values in a slice of u32
+#[inline]
 #[must_use]
 pub fn find_min_max(values: &[u32]) -> (f32, f32) {
     values.iter().fold(
@@ -16,6 +17,7 @@ pub fn find_min_max(values: &[u32]) -> (f32, f32) {
 }
 
 /// Normalize a u32 value from [min, max] range to [0, 255] as u8
+#[inline]
 #[must_use]
 pub fn normalize_u32_to_u8(value: u32, min: f32, range: f32) -> u8 {
     let value_f32 = value as f32;

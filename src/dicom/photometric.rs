@@ -41,24 +41,28 @@ impl FromStr for PhotometricInterpretation {
 
 impl PhotometricInterpretation {
     /// Check if this is a grayscale interpretation
+    #[inline(always)]
     #[must_use]
     pub fn is_grayscale(&self) -> bool {
         matches!(self, Self::Monochrome1 | Self::Monochrome2)
     }
 
     /// Check if this is an RGB interpretation
+    #[inline(always)]
     #[must_use]
     pub fn is_rgb(&self) -> bool {
         matches!(self, Self::Rgb)
     }
 
     /// Check if this is a YCbCr interpretation
+    #[inline(always)]
     #[must_use]
     pub fn is_ycbcr(&self) -> bool {
         matches!(self, Self::YbrFull | Self::YbrFull422)
     }
 
     /// Check if pixel values should be inverted (MONOCHROME1)
+    #[inline(always)]
     #[must_use]
     pub fn should_invert(&self) -> bool {
         matches!(self, Self::Monochrome1)
