@@ -378,10 +378,38 @@ fn extract_ycbcr_pixels(metadata: &DicomMetadata) -> Result<Vec<u8>> {
     let cols = metadata.cols as usize;
     let pixel_count = rows * cols;
 
+    // For multi-frame images, only extract the first frame
+    let pixel_data = if metadata.number_of_frames > 1 {
+        // Calculate expected size for first frame
+        // YBR_FULL_422 subsampled: pixel_count * 2
+        // Full resolution: pixel_count * 3
+        let expected_full_size = pixel_count * 3;
+        let expected_422_size = pixel_count * 2;
+
+        // Determine which subsampling we have based on total data size
+        let total_frames = metadata.pixel_data.len() / expected_full_size;
+        let is_422 = if metadata.pixel_data.len() % expected_full_size == 0 {
+            // Check if data size matches 422 subsampling
+            metadata.pixel_data.len() == expected_422_size * total_frames
+        } else {
+            metadata.pixel_data.len() == expected_422_size * total_frames
+        };
+
+        let single_frame_size = if is_422 { expected_422_size } else { expected_full_size };
+
+        if metadata.pixel_data.len() > single_frame_size {
+            &metadata.pixel_data[..single_frame_size]
+        } else {
+            &metadata.pixel_data
+        }
+    } else {
+        &metadata.pixel_data
+    };
+
     // Check if we have subsampled data (YBR_FULL_422)
     // Full size would be pixel_count * 3
     // With 422 subsampling: Y (pixel_count) + Cb (pixel_count / 2) + Cr (pixel_count / 2)
-    let has_422_subsampling = metadata.pixel_data.len() == pixel_count * 2;
+    let has_422_subsampling = pixel_data.len() == pixel_count * 2;
 
     match metadata.planar_configuration {
         None | Some(0) => {
@@ -398,36 +426,36 @@ fn extract_ycbcr_pixels(metadata: &DicomMetadata) -> Result<Vec<u8>> {
 
                         // Y is at even positions in the input stream
                         let y_idx = if x % 2 == 0 { in_idx } else { in_idx - 1 };
-                        output[out_idx] = metadata.pixel_data[y_idx];
+                        output[out_idx] = pixel_data[y_idx];
 
                         // Cb and Cr are shared between pairs of pixels
                         let chroma_idx = y * cols + (x / 2) * 2 + cols;
-                        output[out_idx + 1] = metadata.pixel_data[chroma_idx];     // Cb
-                        output[out_idx + 2] = metadata.pixel_data[chroma_idx + 1]; // Cr
+                        output[out_idx + 1] = pixel_data[chroma_idx];     // Cb
+                        output[out_idx + 2] = pixel_data[chroma_idx + 1]; // Cr
                     }
                 }
 
                 Ok(output)
             } else {
                 // Full resolution interleaved YCbCr: Y0 Cb0 Cr0 Y1 Cb1 Cr1...
-                if metadata.pixel_data.len() != pixel_count * 3 {
+                if pixel_data.len() != pixel_count * 3 {
                     anyhow::bail!(
                         "Invalid YCbCr pixel data size: expected {} bytes, got {}",
                         pixel_count * 3,
-                        metadata.pixel_data.len()
+                        pixel_data.len()
                     );
                 }
-                Ok(metadata.pixel_data.clone())
+                Ok(pixel_data.to_vec())
             }
         }
         Some(1) => {
             // Planar format
             if has_422_subsampling {
                 // Planar with 422: Y plane is full, Cb/Cr planes are half-width
-                let y_plane = &metadata.pixel_data[..pixel_count];
+                let y_plane = &pixel_data[..pixel_count];
                 let chroma_size = pixel_count / 2;
-                let cb_plane = &metadata.pixel_data[pixel_count..pixel_count + chroma_size];
-                let cr_plane = &metadata.pixel_data[pixel_count + chroma_size..];
+                let cb_plane = &pixel_data[pixel_count..pixel_count + chroma_size];
+                let cr_plane = &pixel_data[pixel_count + chroma_size..pixel_count + chroma_size * 2];
 
                 let mut output = vec![0u8; pixel_count * 3];
 
@@ -447,20 +475,20 @@ fn extract_ycbcr_pixels(metadata: &DicomMetadata) -> Result<Vec<u8>> {
             } else {
                 // Full resolution planar: YYY... CbCbCb... CrCrCr...
                 let expected_size = pixel_count * 3;
-                if metadata.pixel_data.len() != expected_size {
+                if pixel_data.len() != expected_size {
                     anyhow::bail!(
                         "Invalid YCbCr pixel data size: expected {} bytes, got {}",
                         expected_size,
-                        metadata.pixel_data.len()
+                        pixel_data.len()
                     );
                 }
 
                 let mut interleaved = vec![0u8; expected_size];
 
                 for i in 0..pixel_count {
-                    interleaved[i * 3] = metadata.pixel_data[i];              // Y
-                    interleaved[i * 3 + 1] = metadata.pixel_data[pixel_count + i]; // Cb
-                    interleaved[i * 3 + 2] = metadata.pixel_data[pixel_count * 2 + i]; // Cr
+                    interleaved[i * 3] = pixel_data[i];              // Y
+                    interleaved[i * 3 + 1] = pixel_data[pixel_count + i]; // Cb
+                    interleaved[i * 3 + 2] = pixel_data[pixel_count * 2 + i]; // Cr
                 }
 
                 Ok(interleaved)

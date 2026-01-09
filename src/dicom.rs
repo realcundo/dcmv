@@ -272,10 +272,19 @@ pub fn extract_dicom_data(
     #[allow(deprecated)] // Explicit VR Big Endian is retired but still in use
     let is_big_endian = transfer_syntax_uid.as_str() == EXPLICIT_VR_BIG_ENDIAN;
 
-    // Detect if we need to use raw pixel data fallback (for YCbCr, Palette, 32-bit, or other unsupported formats)
-    let needs_raw_fallback = photometric_interpretation.is_ycbcr()
+    // Detect if we need to use raw pixel data fallback
+    // YCbCr, Palette, and 32-bit need raw fallback ONLY if uncompressed
+    // If they're compressed (JPEG/RLE), we must use decode path because to_bytes() fails on encapsulated data
+    let is_compressed = transfer_syntax_uid.contains("1.2.840.10008.1.2.4")  // JPEG family
+        || transfer_syntax_uid.contains("1.2.840.10008.1.2.4.50")  // JPEG Baseline
+        || transfer_syntax_uid.contains("1.2.840.10008.1.2.5")  // RLE lossless
+        || transfer_syntax_uid.contains("JPEG2000");
+
+    let needs_raw_fallback = !is_compressed && (
+        photometric_interpretation.is_ycbcr()
         || matches!(photometric_interpretation, PhotometricInterpretation::Palette)
-        || bits_allocated == 32;
+        || bits_allocated == 32
+    );
 
     // Get pixel data - for big-endian 16-bit, we need special handling
     let pixel_data = if bits_allocated == 16 && is_big_endian {
@@ -322,11 +331,9 @@ pub fn extract_dicom_data(
                 .flat_map(|&v| v.to_le_bytes())
                 .collect()
         } else if bits_allocated == 16 {
-            decoded_pixel_data.to_vec::<u16>()
-                .context("Failed to convert 16-bit pixel data")?
-                .iter()
-                .flat_map(|&v| v.to_le_bytes())
-                .collect()
+            // 16-bit pixel data - use raw decoded data in native byte order
+            // to_vec() may fail when applying LUT transformations, so we use raw data
+            decoded_pixel_data.data().to_vec()
         } else {
             // 8-bit
             decoded_pixel_data.to_vec::<u8>()
@@ -831,5 +838,190 @@ mod tests {
         let err_msg = format!("{err}");
         assert!(err_msg.contains("pixel data") || err_msg.contains("PixelSequence"),
             "Error should mention pixel data issue, got: {}", err_msg);
+    }
+
+    #[test]
+    fn test_jpeg_ycbcr_multiframe_metadata() {
+        // JPEG-compressed YCbCr multi-frame (ultrasound)
+        // 30 frames, YBR_FULL_422, JPEG Baseline compression
+        let file_path = Path::new(".test-files/examples_ybr_color.dcm");
+        let obj = open_dicom_file(file_path).expect("Failed to open examples_ybr_color.dcm");
+        let metadata = extract_dicom_data(&obj).expect("Failed to extract data from examples_ybr_color.dcm");
+
+        // Verify metadata
+        assert_eq!(metadata.bits_allocated, 8);
+        assert_eq!(metadata.bits_stored, 8);
+        assert_eq!(metadata.photometric_interpretation, PhotometricInterpretation::YbrFull422);
+        assert_eq!(metadata.samples_per_pixel, 3);
+        assert_eq!(metadata.number_of_frames, 30);
+
+        // Image conversion should succeed (first frame only)
+        let image = convert_to_image(&metadata).expect("Failed to convert JPEG YCbCr to image");
+        assert_eq!(image.width(), u32::from(metadata.cols));
+        assert_eq!(image.height(), u32::from(metadata.rows));
+
+        // Verify RGB image was created
+        let rgb = image.as_rgb8().expect("Should be RGB image after YCbCr conversion");
+        assert!(rgb.pixels().next().is_some(), "Should have at least one pixel");
+    }
+
+    #[test]
+    fn test_jpeg2000_lossless_metadata() {
+        // JPEG2000 lossless compressed MR image
+        // 64x64, 16-bit grayscale, MONOCHROME2
+        let file_path = Path::new(".test-files/MR_small_jp2klossless.dcm");
+        let obj = open_dicom_file(file_path).expect("Failed to open MR_small_jp2klossless.dcm");
+        let metadata = extract_dicom_data(&obj).expect("Failed to extract data from MR_small_jp2klossless.dcm");
+
+        // Image dimensions
+        assert_eq!(metadata.rows, 64);
+        assert_eq!(metadata.cols, 64);
+
+        // Rescale parameters
+        assert_eq!(metadata.rescale_slope, 1.0);
+        assert_eq!(metadata.rescale_intercept, 0.0);
+
+        // Photometric interpretation
+        assert_eq!(metadata.photometric_interpretation, PhotometricInterpretation::Monochrome2);
+        assert_eq!(metadata.samples_per_pixel, 1);
+
+        // Bit depth
+        assert_eq!(metadata.bits_allocated, 16);
+        assert_eq!(metadata.bits_stored, 16);
+
+        // Planar configuration (should be None for grayscale)
+        assert!(metadata.planar_configuration.is_none());
+
+        // Pixel data should be present (decoded from JPEG2000)
+        assert!(!metadata.pixel_data.is_empty());
+
+        // Image conversion should succeed
+        let image = convert_to_image(&metadata).expect("Failed to convert JPEG2000 image to RGB");
+        assert_eq!(image.width(), u32::from(metadata.cols));
+        assert_eq!(image.height(), u32::from(metadata.rows));
+
+        // Verify RGB image was created
+        let rgb = image.as_rgb8().expect("Should be RGB image after grayscale conversion");
+        let width = rgb.width();
+        let height = rgb.height();
+
+        // Sample pixels to verify grayscale conversion (R=G=B)
+        // Use 5 sample points consistent with existing tests
+        let sample_coords = [
+            (width / 4, height / 4),
+            (width / 2, height / 4),
+            (width / 4, height / 2),
+            (width / 2, height / 2),
+            (3 * width / 4, 3 * height / 4),
+        ];
+
+        for (x, y) in sample_coords {
+            let pixel = rgb.get_pixel(x, y);
+            assert_eq!(pixel[0], pixel[1], "Grayscale should have R=G at ({},{})", x, y);
+            assert_eq!(pixel[1], pixel[2], "Grayscale should have G=B at ({},{})", x, y);
+        }
+
+        // Display metadata - presence checks only (no personal data)
+        assert!(metadata.patient_name.is_some());
+        assert!(metadata.patient_id.is_some());
+
+        // Modality
+        assert_eq!(metadata.modality.as_deref(), Some("MR"));
+
+        // SOP class
+        assert!(metadata.sop_class.is_some());
+        let (uid, name) = metadata.sop_class.as_ref().unwrap();
+        assert_eq!(uid, "1.2.840.10008.5.1.4.1.1.4"); // MR Image Storage
+        assert_eq!(name, "MR Image Storage");
+
+        // Transfer syntax should be JPEG2000 Lossless
+        let (ts_uid, ts_name) = &metadata.transfer_syntax;
+        assert!(ts_uid.contains("1.2.840.10008.1.2.4.90"),
+            "Transfer syntax UID should be JPEG2000 Lossless, got: {}", ts_uid);
+        assert!(ts_name.contains("JPEG 2000") || ts_name.contains("JPEG2000"),
+            "Transfer syntax name should mention JPEG 2000, got: {}", ts_name);
+
+        // Display trait
+        assert_eq!(metadata.photometric_interpretation.to_string(), "MONOCHROME2");
+    }
+
+    #[test]
+    fn test_jpeg2000_lossy_metadata() {
+        // JPEG2000 lossy compressed NM image
+        // 1024x256, 16-bit grayscale, MONOCHROME2
+        let file_path = Path::new(".test-files/JPEG2000.dcm");
+        let obj = open_dicom_file(file_path).expect("Failed to open JPEG2000.dcm");
+        let metadata = extract_dicom_data(&obj).expect("Failed to extract data from JPEG2000.dcm");
+
+        // Image dimensions
+        assert_eq!(metadata.rows, 1024);
+        assert_eq!(metadata.cols, 256);
+
+        // Rescale parameters
+        assert_eq!(metadata.rescale_slope, 1.0);
+        assert_eq!(metadata.rescale_intercept, 0.0);
+
+        // Photometric interpretation
+        assert_eq!(metadata.photometric_interpretation, PhotometricInterpretation::Monochrome2);
+        assert_eq!(metadata.samples_per_pixel, 1);
+
+        // Bit depth
+        assert_eq!(metadata.bits_allocated, 16);
+        assert_eq!(metadata.bits_stored, 16);
+
+        // Planar configuration (should be None for grayscale)
+        assert!(metadata.planar_configuration.is_none());
+
+        // Pixel data should be present (decoded from JPEG2000)
+        assert!(!metadata.pixel_data.is_empty());
+
+        // Image conversion should succeed
+        let image = convert_to_image(&metadata).expect("Failed to convert JPEG2000 image to RGB");
+        assert_eq!(image.width(), u32::from(metadata.cols));
+        assert_eq!(image.height(), u32::from(metadata.rows));
+
+        // Verify RGB image was created
+        let rgb = image.as_rgb8().expect("Should be RGB image after grayscale conversion");
+        let width = rgb.width();
+        let height = rgb.height();
+
+        // Sample pixels to verify grayscale conversion (R=G=B)
+        // Use 5 sample points consistent with existing tests
+        let sample_coords = [
+            (width / 4, height / 4),
+            (width / 2, height / 4),
+            (width / 4, height / 2),
+            (width / 2, height / 2),
+            (3 * width / 4, 3 * height / 4),
+        ];
+
+        for (x, y) in sample_coords {
+            let pixel = rgb.get_pixel(x, y);
+            assert_eq!(pixel[0], pixel[1], "Grayscale should have R=G at ({},{})", x, y);
+            assert_eq!(pixel[1], pixel[2], "Grayscale should have G=B at ({},{})", x, y);
+        }
+
+        // Display metadata - presence checks only (no personal data)
+        assert!(metadata.patient_name.is_some());
+        assert!(metadata.patient_id.is_some());
+
+        // Modality
+        assert_eq!(metadata.modality.as_deref(), Some("NM"));
+
+        // SOP class
+        assert!(metadata.sop_class.is_some());
+        let (uid, name) = metadata.sop_class.as_ref().unwrap();
+        assert_eq!(uid, "1.2.840.10008.5.1.4.1.1.7"); // Secondary Capture Image Storage
+        assert_eq!(name, "Secondary Capture Image Storage");
+
+        // Transfer syntax should be JPEG2000
+        let (ts_uid, ts_name) = &metadata.transfer_syntax;
+        assert!(ts_uid.contains("1.2.840.10008.1.2.4.91"),
+            "Transfer syntax UID should be JPEG2000, got: {}", ts_uid);
+        assert!(ts_name.contains("JPEG 2000") || ts_name.contains("JPEG2000"),
+            "Transfer syntax name should mention JPEG 2000, got: {}", ts_name);
+
+        // Display trait
+        assert_eq!(metadata.photometric_interpretation.to_string(), "MONOCHROME2");
     }
 }
