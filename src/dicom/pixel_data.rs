@@ -18,10 +18,10 @@ pub fn extract_pixel_data(
     photometric_interpretation: &str,
     transfer_syntax_uid: &str,
 ) -> Result<Vec<u8>> {
-    #[allow(deprecated)]
-    use dicom::dictionary_std::uids::EXPLICIT_VR_BIG_ENDIAN;
+    // Explicit VR Big Endian UID (retired but still in use in legacy files)
+    const EXPLICIT_VR_BIG_ENDIAN_UID: &str = "1.2.840.10008.1.2.2";
 
-    let is_big_endian = transfer_syntax_uid == EXPLICIT_VR_BIG_ENDIAN;
+    let is_big_endian = transfer_syntax_uid == EXPLICIT_VR_BIG_ENDIAN_UID;
     let is_compressed = detect_compression(transfer_syntax_uid);
     let needs_raw_fallback = !is_compressed && (
         photometric_interpretation.contains("YBR")
