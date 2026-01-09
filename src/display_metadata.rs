@@ -35,7 +35,7 @@ fn print_field(name: &str, value: &Option<String>) {
 
 /// Print dimensions as "WIDTHxHEIGHTx(number_of_planes) [${photometric_interpretation}]"
 fn print_dimensions(metadata: &DicomMetadata) {
-    let dims = format!("{}x{}", metadata.cols, metadata.rows);
+    let dims = format!("{}x{}", metadata.cols(), metadata.rows());
     println!(
         "{:20}: {}x{} [{}]",
         "Dimensions",
@@ -46,18 +46,17 @@ fn print_dimensions(metadata: &DicomMetadata) {
 }
 
 fn print_pixel_aspect_ratio(metadata: &DicomMetadata) {
-    if let Some((vertical, horizontal)) = metadata.pixel_aspect_ratio {
-        println!("{:20}: {}:{}", "Pixel Aspect Ratio", vertical, horizontal);
+    if let Some(par) = &metadata.pixel_aspect_ratio {
+        println!("{:20}: {}", "Pixel Aspect Ratio", par);
     }
 }
 
 fn print_sop_class_info(metadata: &DicomMetadata) {
-    if let Some((uid, name)) = &metadata.sop_class {
-        println!("{:20}: {} ({})", "SOP Class UID", name, uid);
+    if let Some(sop_class) = &metadata.sop_class {
+        println!("{:20}: {}", "SOP Class UID", sop_class);
     }
 }
 
 fn print_transfer_syntax_info(metadata: &DicomMetadata) {
-    let (uid, name) = &metadata.transfer_syntax;
-    println!("{:20}: {} ({})", "Transfer Syntax", name, uid);
+    println!("{:20}: {}", "Transfer Syntax", metadata.transfer_syntax);
 }

@@ -1,135 +1,30 @@
+//! DICOM file parsing and metadata extraction
+//!
+//! This module provides functionality for opening DICOM files and extracting
+//! metadata and pixel data.
+
+mod photometric;
+mod metadata;
+mod parser;
+mod pixel_data;
+mod validation;
+
+// Re-export public API
+pub use photometric::PhotometricInterpretation;
+pub use metadata::DicomMetadata;
+
 use anyhow::{Context, Result};
-use dicom::core::dictionary::UidDictionary;
-use dicom::dictionary_std::sop_class;
-#[allow(deprecated)]
-use dicom::dictionary_std::uids::EXPLICIT_VR_BIG_ENDIAN;
-use dicom::encoding::TransferSyntaxIndex;
 use dicom::object::{
     open_file,
     FileDicomObject,
     InMemDicomObject,
     StandardDataDictionary
 };
-use dicom::pixeldata::PixelDecoder;
-use dicom::transfer_syntax::TransferSyntaxRegistry;
+use std::path::Path;
 use std::str::FromStr;
 
-/// Photometric interpretation describes the color space of pixel data
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PhotometricInterpretation {
-    /// Grayscale where min value = white, max value = black
-    Monochrome1,
-    /// Grayscale where min value = black, max value = white
-    Monochrome2,
-    /// RGB color space (interleaved or planar)
-    Rgb,
-    /// RGB stored in YCbCr color space (future)
-    YbrFull,
-    /// YCbCr for JPEG (future)
-    YbrFull422,
-    /// Palette color (future)
-    Palette,
-    /// Unknown photometric interpretation
-    Unknown(String),
-}
-
-impl FromStr for PhotometricInterpretation {
-    type Err = ();
-
-    /// Parse photometric interpretation from DICOM string
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(match s.trim() {
-            "MONOCHROME1" => Self::Monochrome1,
-            "MONOCHROME2" => Self::Monochrome2,
-            "RGB" => Self::Rgb,
-            "YBR_FULL" => Self::YbrFull,
-            "YBR_FULL_422" => Self::YbrFull422,
-            "PALETTE COLOR" => Self::Palette,
-            other => Self::Unknown(other.to_string()),
-        })
-    }
-}
-
-impl PhotometricInterpretation {
-    /// Check if this is a grayscale interpretation
-    pub fn is_grayscale(&self) -> bool {
-        matches!(self, Self::Monochrome1 | Self::Monochrome2)
-    }
-
-    /// Check if this is an RGB interpretation
-    pub fn is_rgb(&self) -> bool {
-        matches!(self, Self::Rgb)
-    }
-
-    /// Check if this is a YCbCr interpretation
-    pub fn is_ycbcr(&self) -> bool {
-        matches!(self, Self::YbrFull | Self::YbrFull422)
-    }
-
-    /// Check if pixel values should be inverted (MONOCHROME1)
-    pub fn should_invert(&self) -> bool {
-        matches!(self, Self::Monochrome1)
-    }
-}
-
-impl std::fmt::Display for PhotometricInterpretation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Monochrome1 => write!(f, "MONOCHROME1"),
-            Self::Monochrome2 => write!(f, "MONOCHROME2"),
-            Self::Rgb => write!(f, "RGB"),
-            Self::YbrFull => write!(f, "YBR_FULL"),
-            Self::YbrFull422 => write!(f, "YBR_FULL_422"),
-            Self::Palette => write!(f, "PALETTE COLOR"),
-            Self::Unknown(s) => write!(f, "{}", s),
-        }
-    }
-}
-
-impl DicomMetadata {
-    /// Returns true if this DICOM file uses big-endian byte order
-    #[allow(deprecated)] // Explicit VR Big Endian is retired but still in use
-    pub fn is_big_endian(&self) -> bool {
-        self.transfer_syntax.0.as_str() == EXPLICIT_VR_BIG_ENDIAN
-    }
-}
-
-/// DICOM image metadata extracted from the file
-#[derive(Debug, Clone)]
-pub struct DicomMetadata {
-    pub rows: u16,
-    pub cols: u16,
-    pub rescale_slope: f64,
-    pub rescale_intercept: f64,
-    pub pixel_aspect_ratio: Option<(f64, f64)>, // (vertical, horizontal)
-    pub number_of_frames: u32,                   // Number of frames (default 1 for single-frame)
-
-    // Photometric interpretation and color space
-    pub photometric_interpretation: PhotometricInterpretation,
-    pub samples_per_pixel: u16,        // 1 for grayscale, 3 for RGB
-    pub bits_allocated: u16,            // 8, 16, or 32
-    pub bits_stored: u16,               // Actual bits used (<= bits_allocated)
-    pub planar_configuration: Option<u16>, // 0 = interleaved, 1 = planar (RGB only)
-
-    // Raw pixel data as bytes (supports both 8-bit RGB and 16-bit grayscale)
-    pub pixel_data: Vec<u8>,
-
-    // Display metadata fields
-    pub patient_name: Option<String>,
-    pub patient_id: Option<String>,
-    pub patient_birth_date: Option<String>,
-    pub accession_number: Option<String>,
-    pub study_date: Option<String>,
-    pub study_description: Option<String>,
-    pub modality: Option<String>,
-    pub series_description: Option<String>,
-    pub slice_thickness: Option<f64>,
-    pub sop_class: Option<(String, String)>,     // (uid, name)
-    pub transfer_syntax: (String, String),       // (uid, name) - always present
-}
-
 /// Open and parse a DICOM file
-pub fn open_dicom_file(file_path: &std::path::Path) -> Result<FileDicomObject<InMemDicomObject<StandardDataDictionary>>> {
+pub fn open_dicom_file(file_path: &Path) -> Result<FileDicomObject<InMemDicomObject<StandardDataDictionary>>> {
     open_file(file_path)
         .with_context(|| format!("Failed to open DICOM file: {}", file_path.display()))
 }
@@ -140,236 +35,54 @@ pub fn extract_dicom_data(
 ) -> Result<DicomMetadata> {
     use dicom::dictionary_std::tags;
 
-    // Get image dimensions
-    let rows = obj
-        .get(tags::ROWS)
-        .and_then(|e| e.to_int::<u16>().ok())
-        .context("Missing or invalid Rows tag")?;
+    // Extract metadata using helper functions
+    let dimensions = parser::extract_dimensions(obj)?;
+    let rescale = parser::extract_rescale_params(obj);
+    let pixel_aspect_ratio = parser::extract_pixel_aspect_ratio(obj);
+    let number_of_frames = parser::extract_number_of_frames(obj);
+    let samples_per_pixel = parser::extract_samples_per_pixel(obj);
+    let (bits_allocated, bits_stored) = parser::extract_bit_depth(obj)?;
+    let planar_configuration = parser::extract_planar_configuration(obj);
+    let sop_class = parser::extract_sop_class(obj);
+    let transfer_syntax = parser::extract_transfer_syntax(obj);
 
-    let cols = obj
-        .get(tags::COLUMNS)
-        .and_then(|e| e.to_int::<u16>().ok())
-        .context("Missing or invalid Columns tag")?;
-
-    // Get rescale parameters
-    let rescale_slope = obj
-        .get(tags::RESCALE_SLOPE)
-        .and_then(|e| e.to_float64().ok())
-        .unwrap_or(1.0);
-
-    let rescale_intercept = obj
-        .get(tags::RESCALE_INTERCEPT)
-        .and_then(|e| e.to_float64().ok())
-        .unwrap_or(0.0);
-
-    // Get pixel aspect ratio (vertical\horizontal)
-    let pixel_aspect_ratio = obj
-        .get(tags::PIXEL_ASPECT_RATIO)
-        .and_then(|e| e.value().to_str().ok())
-        .and_then(|s| {
-            let (vertical, horizontal) = s.split_once('\\')?;
-            let vertical = vertical.trim().parse::<f64>().ok()?;
-            let horizontal = horizontal.trim().parse::<f64>().ok()?;
-            Some((vertical, horizontal))
-        });
+    // Extract metadata groups
+    let (patient_name, patient_id, patient_birth_date) = parser::extract_patient_metadata(obj);
+    let (accession_number, study_date, study_description, modality) = parser::extract_study_metadata(obj);
+    let (series_description, slice_thickness) = parser::extract_series_metadata(obj);
 
     // Parse photometric interpretation
     let photometric_interpretation = obj
         .get(tags::PHOTOMETRIC_INTERPRETATION)
         .and_then(|e| e.value().to_str().ok())
-        .map_or(PhotometricInterpretation::Monochrome2, |s| PhotometricInterpretation::from_str(&s).unwrap()); // Default
+        .map(|s| {
+            let s_str = s.as_ref();
+            PhotometricInterpretation::from_str(s_str)
+                .map_err(|_| anyhow::anyhow!("Unknown photometric interpretation: {s_str}"))
+        })
+        .transpose()
+        .context("Failed to parse photometric interpretation")?
+        .unwrap_or(PhotometricInterpretation::Monochrome2); // Default to Monochrome2
 
-    // Get samples per pixel (1 for grayscale, 3 for RGB)
-    let samples_per_pixel = obj
-        .get(tags::SAMPLES_PER_PIXEL)
-        .and_then(|e| e.to_int::<u16>().ok())
-        .unwrap_or(1); // Default to 1 (grayscale)
+    // Extract pixel data
+    let pixel_data = pixel_data::extract_pixel_data(
+        obj,
+        bits_allocated,
+        &photometric_interpretation.to_string(),
+        &transfer_syntax.uid,
+    )?;
 
-    // Get bits allocated (8 or 16)
-    let bits_allocated = obj
-        .get(tags::BITS_ALLOCATED)
-        .and_then(|e| e.to_int::<u16>().ok())
-        .unwrap_or(16); // Default to 16
-
-    // Get bits stored (actual number of bits stored, <= bits_allocated)
-    let bits_stored = obj
-        .get(tags::BITS_STORED)
-        .and_then(|e| e.to_int::<u16>().ok())
-        .unwrap_or(bits_allocated); // Default to bits_allocated
-
-    // Get planar configuration (for RGB only)
-    let planar_configuration = obj
-        .get(tags::PLANAR_CONFIGURATION)
-        .and_then(|e| e.to_int::<u16>().ok());
-
-    // Get number of frames (default to 1 for single-frame images)
-    let number_of_frames = obj
-        .get(tags::NUMBER_OF_FRAMES)
-        .and_then(|e| e.to_int::<u32>().ok())
-        .unwrap_or(1);
-
-    // Extract patient info
-    let patient_name = obj
-        .get(tags::PATIENT_NAME)
-        .and_then(|e| e.value().to_str().ok())
-        .map(|s| s.to_string());
-    let patient_id = obj
-        .get(tags::PATIENT_ID)
-        .and_then(|e| e.value().to_str().ok())
-        .map(|s| s.to_string());
-    let patient_birth_date = obj
-        .get(tags::PATIENT_BIRTH_DATE)
-        .and_then(|e| e.value().to_str().ok())
-        .map(|s| s.to_string());
-
-    // Extract study info
-    let accession_number = obj
-        .get(tags::ACCESSION_NUMBER)
-        .and_then(|e| e.value().to_str().ok())
-        .map(|s| s.to_string());
-    let study_date = obj
-        .get(tags::STUDY_DATE)
-        .and_then(|e| e.value().to_str().ok())
-        .map(|s| s.to_string());
-    let study_description = obj
-        .get(tags::STUDY_DESCRIPTION)
-        .and_then(|e| e.value().to_str().ok())
-        .map(|s| s.to_string());
-    let modality = obj
-        .get(tags::MODALITY)
-        .and_then(|e| e.value().to_str().ok())
-        .map(|s| s.to_string());
-
-    // Extract series info
-    let series_description = obj
-        .get(tags::SERIES_DESCRIPTION)
-        .and_then(|e| e.value().to_str().ok())
-        .map(|s| s.to_string());
-
-    // Extract image info
-    let slice_thickness = obj
-        .get(tags::SLICE_THICKNESS)
-        .and_then(|e| e.to_float64().ok());
-
-    // Extract SOP Class UID with lookup
-    let sop_class = obj
-        .get(tags::SOP_CLASS_UID)
-        .and_then(|e| e.value().to_str().ok())
-        .and_then(|uid| {
-            sop_class::StandardSopClassDictionary
-                .by_uid(&uid)
-                .map(|entry| (uid.to_string(), entry.name.to_string()))
-        });
-
-    // Extract Transfer Syntax from meta header (always present)
-    let transfer_syntax_uid = obj.meta().transfer_syntax().to_string();
-    let transfer_syntax_name = TransferSyntaxRegistry
-        .get(&transfer_syntax_uid)
-        .map_or_else(|| "Unknown".to_string(), |ts| ts.name().to_string());
-    let transfer_syntax = (transfer_syntax_uid.clone(), transfer_syntax_name);
-
-    // Detect big-endian transfer syntax for 16-bit pixel data
-    #[allow(deprecated)] // Explicit VR Big Endian is retired but still in use
-    let is_big_endian = transfer_syntax_uid.as_str() == EXPLICIT_VR_BIG_ENDIAN;
-
-    // Detect if we need to use raw pixel data fallback
-    // YCbCr, Palette, and 32-bit need raw fallback ONLY if uncompressed
-    // If they're compressed (JPEG/RLE), we must use decode path because to_bytes() fails on encapsulated data
-    let is_compressed = transfer_syntax_uid.contains("1.2.840.10008.1.2.4")  // JPEG family
-        || transfer_syntax_uid.contains("1.2.840.10008.1.2.4.50")  // JPEG Baseline
-        || transfer_syntax_uid.contains("1.2.840.10008.1.2.5")  // RLE lossless
-        || transfer_syntax_uid.contains("JPEG2000");
-
-    let needs_raw_fallback = !is_compressed && (
-        photometric_interpretation.is_ycbcr()
-        || matches!(photometric_interpretation, PhotometricInterpretation::Palette)
-        || bits_allocated == 32
-    );
-
-    // Get pixel data - for big-endian 16-bit, we need special handling
-    let pixel_data = if bits_allocated == 16 && is_big_endian {
-        // For big-endian 16-bit, get raw pixel data directly
-        let pixel_data_obj = obj.get(tags::PIXEL_DATA)
-            .context("Missing pixel data")?;
-
-        // Get raw bytes from pixel data element
-        let raw_bytes = pixel_data_obj.to_bytes()
-            .context("Failed to get raw pixel data bytes")?;
-
-        // Validate length
-        if !raw_bytes.len().is_multiple_of(2) {
-            anyhow::bail!("Invalid 16-bit pixel data length");
-        }
-
-        // Convert big-endian bytes to u16 values, store as little-endian
-        raw_bytes
-            .chunks_exact(2)
-            .flat_map(|chunk| {
-                let value = u16::from_be_bytes([chunk[0], chunk[1]]);
-                value.to_le_bytes()
-            })
-            .collect()
-    } else if needs_raw_fallback {
-        // For YCbCr, Palette, and 32-bit formats, get raw pixel data directly
-        let pixel_data_obj = obj.get(tags::PIXEL_DATA)
-            .context("Missing pixel data")?;
-
-        pixel_data_obj.to_bytes()
-            .context("Failed to get raw pixel data bytes")?
-            .to_vec()
-    } else {
-        // For little-endian or 8-bit, use the standard decode path
-        let decoded_pixel_data = obj.decode_pixel_data()
-            .context("Failed to decode pixel data")?;
-
-        if bits_allocated == 32 {
-            // 32-bit pixel data (grayscale or RGB)
-            // decode_pixel_data() handles RLE decompression automatically
-            decoded_pixel_data.to_vec::<u32>()
-                .context("Failed to convert 32-bit pixel data")?
-                .iter()
-                .flat_map(|&v| v.to_le_bytes())
-                .collect()
-        } else if bits_allocated == 16 {
-            // 16-bit pixel data - use raw decoded data in native byte order
-            // to_vec() may fail when applying LUT transformations, so we use raw data
-            decoded_pixel_data.data().to_vec()
-        } else {
-            // 8-bit
-            decoded_pixel_data.to_vec::<u8>()
-                .context("Failed to convert pixel data to bytes")?
-        }
-    };
-
-    // Validate photometric interpretation matches samples per pixel
-    let is_valid = match (&photometric_interpretation, samples_per_pixel) {
-        (pi, 1) if pi.is_grayscale() || matches!(pi, PhotometricInterpretation::Palette) => true,
-        (pi, 3) if pi.is_rgb() || pi.is_ycbcr() => true,
-        _ => false,
-    };
-
-    if !is_valid {
-        anyhow::bail!(
-            "Inconsistent photometric interpretation {:?} with samples per pixel {}",
-            photometric_interpretation, samples_per_pixel
-        );
-    }
-
-    // Validate planar configuration only for RGB
-    if planar_configuration.is_some() && !photometric_interpretation.is_rgb() && !photometric_interpretation.is_ycbcr() {
-        anyhow::bail!("Planar configuration should only be present for RGB or YCbCr images");
-    }
-
-    // Validate bits allocated
-    if !matches!(bits_allocated, 8 | 16 | 32) {
-        anyhow::bail!("Unsupported bits allocated: {bits_allocated} (expected 8, 16, or 32)");
-    }
+    // Validate all constraints
+    validation::validate_metadata(
+        &photometric_interpretation,
+        samples_per_pixel,
+        planar_configuration,
+        bits_allocated,
+    )?;
 
     Ok(DicomMetadata {
-        rows,
-        cols,
-        rescale_slope,
-        rescale_intercept,
+        dimensions,
+        rescale,
         pixel_aspect_ratio,
         number_of_frames,
         photometric_interpretation,
@@ -405,12 +118,12 @@ mod tests {
         let metadata = extract_dicom_data(&obj).expect("Failed to extract data from file1.dcm");
 
         // Image dimensions
-        assert_eq!(metadata.rows, 1855);
-        assert_eq!(metadata.cols, 1991);
+        assert_eq!(metadata.rows(), 1855);
+        assert_eq!(metadata.cols(), 1991);
 
         // Rescale parameters
-        assert_eq!(metadata.rescale_slope, 1.0);
-        assert_eq!(metadata.rescale_intercept, 0.0);
+        assert_eq!(metadata.rescale_slope(), 1.0);
+        assert_eq!(metadata.rescale_intercept(), 0.0);
 
         // Photometric interpretation
         assert_eq!(metadata.photometric_interpretation, PhotometricInterpretation::Monochrome1);
@@ -428,8 +141,8 @@ mod tests {
 
         // Image conversion should succeed
         let image = convert_to_image(&metadata).expect("Failed to convert file1.dcm to image");
-        assert_eq!(image.width(), u32::from(metadata.cols));
-        assert_eq!(image.height(), u32::from(metadata.rows));
+        assert_eq!(image.width(), u32::from(metadata.cols()));
+        assert_eq!(image.height(), u32::from(metadata.rows()));
 
         // Verify pixel values - check 5 non-black pixels
         // Grayscale converted to RGB, so R=G=B for all pixels
@@ -466,13 +179,13 @@ mod tests {
 
         // SOP class and transfer syntax
         assert!(metadata.sop_class.is_some());
-        let (uid, name) = metadata.sop_class.as_ref().unwrap();
-        assert_eq!(uid, "1.2.840.10008.5.1.4.1.1.1");
-        assert_eq!(name, "Computed Radiography Image Storage");
+        let sc = metadata.sop_class.as_ref().unwrap();
+        assert_eq!(sc.uid, "1.2.840.10008.5.1.4.1.1.1");
+        assert_eq!(sc.name, "Computed Radiography Image Storage");
 
-        let (ts_uid, ts_name) = &metadata.transfer_syntax;
-        assert_eq!(ts_uid, "1.2.840.10008.1.2");
-        assert_eq!(ts_name, "Implicit VR Little Endian");
+        // Transfer syntax checks below
+        assert_eq!(metadata.transfer_syntax.uid, "1.2.840.10008.1.2");
+        assert_eq!(metadata.transfer_syntax.name, "Implicit VR Little Endian");
 
         // Display trait
         assert_eq!(metadata.photometric_interpretation.to_string(), "MONOCHROME1");
@@ -485,12 +198,12 @@ mod tests {
         let metadata = extract_dicom_data(&obj).expect("Failed to extract data from file2.dcm");
 
         // Image dimensions (RGB)
-        assert_eq!(metadata.rows, 192);
-        assert_eq!(metadata.cols, 160);
+        assert_eq!(metadata.rows(), 192);
+        assert_eq!(metadata.cols(), 160);
 
         // Rescale parameters
-        assert_eq!(metadata.rescale_slope, 1.0);
-        assert_eq!(metadata.rescale_intercept, 0.0);
+        assert_eq!(metadata.rescale_slope(), 1.0);
+        assert_eq!(metadata.rescale_intercept(), 0.0);
 
         // Photometric interpretation (RGB)
         assert_eq!(metadata.photometric_interpretation, PhotometricInterpretation::Rgb);
@@ -508,8 +221,8 @@ mod tests {
 
         // Image conversion should succeed
         let image = convert_to_image(&metadata).expect("Failed to convert file2.dcm to image");
-        assert_eq!(image.width(), u32::from(metadata.cols));
-        assert_eq!(image.height(), u32::from(metadata.rows));
+        assert_eq!(image.width(), u32::from(metadata.cols()));
+        assert_eq!(image.height(), u32::from(metadata.rows()));
 
         // Verify pixel values - check 5 non-black pixels
         // RGB image with different channel values
@@ -543,13 +256,13 @@ mod tests {
 
         // SOP class and transfer syntax
         assert!(metadata.sop_class.is_some());
-        let (uid, name) = metadata.sop_class.as_ref().unwrap();
-        assert_eq!(uid, "1.2.840.10008.5.1.4.1.1.4");
-        assert_eq!(name, "MR Image Storage");
+        let sc = metadata.sop_class.as_ref().unwrap();
+        assert_eq!(sc.uid, "1.2.840.10008.5.1.4.1.1.4");
+        assert_eq!(sc.name, "MR Image Storage");
 
-        let (ts_uid, ts_name) = &metadata.transfer_syntax;
-        assert_eq!(ts_uid, "1.2.840.10008.1.2.1");
-        assert_eq!(ts_name, "Explicit VR Little Endian");
+        // Transfer syntax checks below
+        assert_eq!(metadata.transfer_syntax.uid, "1.2.840.10008.1.2.1");
+        assert_eq!(metadata.transfer_syntax.name, "Explicit VR Little Endian");
 
         // Display trait
         assert_eq!(metadata.photometric_interpretation.to_string(), "RGB");
@@ -562,12 +275,12 @@ mod tests {
         let metadata = extract_dicom_data(&obj).expect("Failed to extract data from file3.dcm");
 
         // Image dimensions
-        assert_eq!(metadata.rows, 4616);
-        assert_eq!(metadata.cols, 3016);
+        assert_eq!(metadata.rows(), 4616);
+        assert_eq!(metadata.cols(), 3016);
 
         // Rescale parameters
-        assert_eq!(metadata.rescale_slope, 1.0);
-        assert_eq!(metadata.rescale_intercept, 0.0);
+        assert_eq!(metadata.rescale_slope(), 1.0);
+        assert_eq!(metadata.rescale_intercept(), 0.0);
 
         // Photometric interpretation
         assert_eq!(metadata.photometric_interpretation, PhotometricInterpretation::Monochrome2);
@@ -585,8 +298,8 @@ mod tests {
 
         // Image conversion should succeed
         let image = convert_to_image(&metadata).expect("Failed to convert file3.dcm to image");
-        assert_eq!(image.width(), u32::from(metadata.cols));
-        assert_eq!(image.height(), u32::from(metadata.rows));
+        assert_eq!(image.width(), u32::from(metadata.cols()));
+        assert_eq!(image.height(), u32::from(metadata.rows()));
 
         // Verify pixel values - check 5 non-black pixels
         // Grayscale converted to RGB, so R=G=B for all pixels
@@ -620,13 +333,13 @@ mod tests {
 
         // SOP class and transfer syntax
         assert!(metadata.sop_class.is_some());
-        let (uid, name) = metadata.sop_class.as_ref().unwrap();
-        assert_eq!(uid, "1.2.840.10008.5.1.4.1.1.1.2");
-        assert_eq!(name, "Digital Mammography X-Ray Image Storage - For Presentation");
+        let sc = metadata.sop_class.as_ref().unwrap();
+        assert_eq!(sc.uid, "1.2.840.10008.5.1.4.1.1.1.2");
+        assert_eq!(sc.name, "Digital Mammography X-Ray Image Storage - For Presentation");
 
-        let (ts_uid, ts_name) = &metadata.transfer_syntax;
-        assert_eq!(ts_uid, "1.2.840.10008.1.2");
-        assert_eq!(ts_name, "Implicit VR Little Endian");
+        // Transfer syntax checks below
+        assert_eq!(metadata.transfer_syntax.uid, "1.2.840.10008.1.2");
+        assert_eq!(metadata.transfer_syntax.name, "Implicit VR Little Endian");
 
         // Display trait
         assert_eq!(metadata.photometric_interpretation.to_string(), "MONOCHROME2");
@@ -639,25 +352,25 @@ mod tests {
         let metadata = extract_dicom_data(&obj).expect("Failed to extract data from MR_small_bigendian.dcm");
 
         // Image dimensions (small test image)
-        assert_eq!(metadata.rows, 64);
-        assert_eq!(metadata.cols, 64);
+        assert_eq!(metadata.rows(), 64);
+        assert_eq!(metadata.cols(), 64);
 
         // Bits allocated (16-bit grayscale)
         assert_eq!(metadata.bits_allocated, 16);
         assert_eq!(metadata.bits_stored, 16);
 
         // Rescale parameters (defaults)
-        assert_eq!(metadata.rescale_slope, 1.0);
-        assert_eq!(metadata.rescale_intercept, 0.0);
+        assert_eq!(metadata.rescale_slope(), 1.0);
+        assert_eq!(metadata.rescale_intercept(), 0.0);
 
         // Photometric interpretation (grayscale)
         assert_eq!(metadata.photometric_interpretation, PhotometricInterpretation::Monochrome2);
         assert_eq!(metadata.samples_per_pixel, 1);
 
         // Transfer syntax - this is the key test for big-endian support
-        let (ts_uid, ts_name) = &metadata.transfer_syntax;
-        assert_eq!(ts_uid, "1.2.840.10008.1.2.2");
-        assert_eq!(ts_name, "Explicit VR Big Endian");
+        // Transfer syntax checks below
+        assert_eq!(metadata.transfer_syntax.uid, "1.2.840.10008.1.2.2");
+        assert_eq!(metadata.transfer_syntax.name, "Explicit VR Big Endian");
 
         // Verify is_big_endian() method works
         assert!(metadata.is_big_endian());
@@ -668,8 +381,8 @@ mod tests {
 
         // Image conversion should succeed
         let image = convert_to_image(&metadata).expect("Failed to convert MR_small_bigendian.dcm to image");
-        assert_eq!(image.width(), u32::from(metadata.cols));
-        assert_eq!(image.height(), u32::from(metadata.rows));
+        assert_eq!(image.width(), u32::from(metadata.cols()));
+        assert_eq!(image.height(), u32::from(metadata.rows()));
 
         // Verify pixel values - check 5 non-black pixels
         // Grayscale converted to RGB, so R=G=B for all pixels
@@ -777,8 +490,8 @@ mod tests {
 
         // Image conversion should now succeed
         let image = convert_to_image(&metadata).expect("Failed to convert YCbCr to RGB image");
-        assert_eq!(image.width(), u32::from(metadata.cols));
-        assert_eq!(image.height(), u32::from(metadata.rows));
+        assert_eq!(image.width(), u32::from(metadata.cols()));
+        assert_eq!(image.height(), u32::from(metadata.rows()));
 
         // Verify pixel values - check 5 non-black pixels
         // YCbCr converted to RGB, channels can have different values
@@ -857,8 +570,8 @@ mod tests {
 
         // Image conversion should succeed (first frame only)
         let image = convert_to_image(&metadata).expect("Failed to convert JPEG YCbCr to image");
-        assert_eq!(image.width(), u32::from(metadata.cols));
-        assert_eq!(image.height(), u32::from(metadata.rows));
+        assert_eq!(image.width(), u32::from(metadata.cols()));
+        assert_eq!(image.height(), u32::from(metadata.rows()));
 
         // Verify RGB image was created
         let rgb = image.as_rgb8().expect("Should be RGB image after YCbCr conversion");
@@ -874,12 +587,12 @@ mod tests {
         let metadata = extract_dicom_data(&obj).expect("Failed to extract data from MR_small_jp2klossless.dcm");
 
         // Image dimensions
-        assert_eq!(metadata.rows, 64);
-        assert_eq!(metadata.cols, 64);
+        assert_eq!(metadata.rows(), 64);
+        assert_eq!(metadata.cols(), 64);
 
         // Rescale parameters
-        assert_eq!(metadata.rescale_slope, 1.0);
-        assert_eq!(metadata.rescale_intercept, 0.0);
+        assert_eq!(metadata.rescale_slope(), 1.0);
+        assert_eq!(metadata.rescale_intercept(), 0.0);
 
         // Photometric interpretation
         assert_eq!(metadata.photometric_interpretation, PhotometricInterpretation::Monochrome2);
@@ -897,8 +610,8 @@ mod tests {
 
         // Image conversion should succeed
         let image = convert_to_image(&metadata).expect("Failed to convert JPEG2000 image to RGB");
-        assert_eq!(image.width(), u32::from(metadata.cols));
-        assert_eq!(image.height(), u32::from(metadata.rows));
+        assert_eq!(image.width(), u32::from(metadata.cols()));
+        assert_eq!(image.height(), u32::from(metadata.rows()));
 
         // Verify RGB image was created
         let rgb = image.as_rgb8().expect("Should be RGB image after grayscale conversion");
@@ -930,16 +643,16 @@ mod tests {
 
         // SOP class
         assert!(metadata.sop_class.is_some());
-        let (uid, name) = metadata.sop_class.as_ref().unwrap();
-        assert_eq!(uid, "1.2.840.10008.5.1.4.1.1.4"); // MR Image Storage
-        assert_eq!(name, "MR Image Storage");
+        let sc = metadata.sop_class.as_ref().unwrap();
+        assert_eq!(sc.uid, "1.2.840.10008.5.1.4.1.1.4"); // MR Image Storage
+        assert_eq!(sc.name, "MR Image Storage");
 
         // Transfer syntax should be JPEG2000 Lossless
-        let (ts_uid, ts_name) = &metadata.transfer_syntax;
-        assert!(ts_uid.contains("1.2.840.10008.1.2.4.90"),
-            "Transfer syntax UID should be JPEG2000 Lossless, got: {}", ts_uid);
-        assert!(ts_name.contains("JPEG 2000") || ts_name.contains("JPEG2000"),
-            "Transfer syntax name should mention JPEG 2000, got: {}", ts_name);
+        // Transfer syntax checks below
+        assert!(metadata.transfer_syntax.uid.contains("1.2.840.10008.1.2.4.90"),
+            "Transfer syntax UID should be JPEG2000 Lossless, got: {}", metadata.transfer_syntax.uid);
+        assert!(metadata.transfer_syntax.name.contains("JPEG 2000") || metadata.transfer_syntax.name.contains("JPEG2000"),
+            "Transfer syntax name should mention JPEG 2000, got: {}", metadata.transfer_syntax.name);
 
         // Display trait
         assert_eq!(metadata.photometric_interpretation.to_string(), "MONOCHROME2");
@@ -954,12 +667,12 @@ mod tests {
         let metadata = extract_dicom_data(&obj).expect("Failed to extract data from JPEG2000.dcm");
 
         // Image dimensions
-        assert_eq!(metadata.rows, 1024);
-        assert_eq!(metadata.cols, 256);
+        assert_eq!(metadata.rows(), 1024);
+        assert_eq!(metadata.cols(), 256);
 
         // Rescale parameters
-        assert_eq!(metadata.rescale_slope, 1.0);
-        assert_eq!(metadata.rescale_intercept, 0.0);
+        assert_eq!(metadata.rescale_slope(), 1.0);
+        assert_eq!(metadata.rescale_intercept(), 0.0);
 
         // Photometric interpretation
         assert_eq!(metadata.photometric_interpretation, PhotometricInterpretation::Monochrome2);
@@ -977,8 +690,8 @@ mod tests {
 
         // Image conversion should succeed
         let image = convert_to_image(&metadata).expect("Failed to convert JPEG2000 image to RGB");
-        assert_eq!(image.width(), u32::from(metadata.cols));
-        assert_eq!(image.height(), u32::from(metadata.rows));
+        assert_eq!(image.width(), u32::from(metadata.cols()));
+        assert_eq!(image.height(), u32::from(metadata.rows()));
 
         // Verify RGB image was created
         let rgb = image.as_rgb8().expect("Should be RGB image after grayscale conversion");
@@ -1010,16 +723,16 @@ mod tests {
 
         // SOP class
         assert!(metadata.sop_class.is_some());
-        let (uid, name) = metadata.sop_class.as_ref().unwrap();
-        assert_eq!(uid, "1.2.840.10008.5.1.4.1.1.7"); // Secondary Capture Image Storage
-        assert_eq!(name, "Secondary Capture Image Storage");
+        let sc = metadata.sop_class.as_ref().unwrap();
+        assert_eq!(sc.uid, "1.2.840.10008.5.1.4.1.1.7"); // Secondary Capture Image Storage
+        assert_eq!(sc.name, "Secondary Capture Image Storage");
 
         // Transfer syntax should be JPEG2000
-        let (ts_uid, ts_name) = &metadata.transfer_syntax;
-        assert!(ts_uid.contains("1.2.840.10008.1.2.4.91"),
-            "Transfer syntax UID should be JPEG2000, got: {}", ts_uid);
-        assert!(ts_name.contains("JPEG 2000") || ts_name.contains("JPEG2000"),
-            "Transfer syntax name should mention JPEG 2000, got: {}", ts_name);
+        // Transfer syntax checks below
+        assert!(metadata.transfer_syntax.uid.contains("1.2.840.10008.1.2.4.91"),
+            "Transfer syntax UID should be JPEG2000, got: {}", metadata.transfer_syntax.uid);
+        assert!(metadata.transfer_syntax.name.contains("JPEG 2000") || metadata.transfer_syntax.name.contains("JPEG2000"),
+            "Transfer syntax name should mention JPEG 2000, got: {}", metadata.transfer_syntax.name);
 
         // Display trait
         assert_eq!(metadata.photometric_interpretation.to_string(), "MONOCHROME2");
