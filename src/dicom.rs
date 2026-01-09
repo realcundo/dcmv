@@ -1,6 +1,8 @@
 use anyhow::{Context, Result};
 use dicom::core::dictionary::UidDictionary;
 use dicom::dictionary_std::sop_class;
+#[allow(deprecated)]
+use dicom::dictionary_std::uids::EXPLICIT_VR_BIG_ENDIAN;
 use dicom::encoding::TransferSyntaxIndex;
 use dicom::object::{
     open_file,
@@ -76,6 +78,14 @@ impl std::fmt::Display for PhotometricInterpretation {
             Self::Palette => write!(f, "PALETTE COLOR"),
             Self::Unknown(s) => write!(f, "{}", s),
         }
+    }
+}
+
+impl DicomMetadata {
+    /// Returns true if this DICOM file uses big-endian byte order
+    #[allow(deprecated)] // Explicit VR Big Endian is retired but still in use
+    pub fn is_big_endian(&self) -> bool {
+        self.transfer_syntax.0.as_str() == EXPLICIT_VR_BIG_ENDIAN
     }
 }
 
@@ -237,23 +247,50 @@ pub fn extract_dicom_data(
     let transfer_syntax_name = TransferSyntaxRegistry
         .get(&transfer_syntax_uid)
         .map_or_else(|| "Unknown".to_string(), |ts| ts.name().to_string());
-    let transfer_syntax = (transfer_syntax_uid, transfer_syntax_name);
+    let transfer_syntax = (transfer_syntax_uid.clone(), transfer_syntax_name);
 
-    // Decode pixel data (handles both compressed and uncompressed)
-    let decoded_pixel_data = obj.decode_pixel_data()
-        .context("Failed to decode pixel data")?;
+    // Detect big-endian transfer syntax for 16-bit pixel data
+    #[allow(deprecated)] // Explicit VR Big Endian is retired but still in use
+    let is_big_endian = transfer_syntax_uid.as_str() == EXPLICIT_VR_BIG_ENDIAN;
 
-    // Get raw pixel data as bytes (supports both 8-bit RGB and 16-bit grayscale)
-    // For 16-bit grayscale, we need to use u16, then convert to bytes
-    let pixel_data = if bits_allocated == 16 {
-        decoded_pixel_data.to_vec::<u16>()
-            .context("Failed to convert 16-bit pixel data")?
-            .iter()
-            .flat_map(|&v| v.to_le_bytes())
+    // Get pixel data - for big-endian 16-bit, we need special handling
+    let pixel_data = if bits_allocated == 16 && is_big_endian {
+        // For big-endian 16-bit, get raw pixel data directly
+        let pixel_data_obj = obj.get(tags::PIXEL_DATA)
+            .context("Missing pixel data")?;
+
+        // Get raw bytes from pixel data element
+        let raw_bytes = pixel_data_obj.to_bytes()
+            .context("Failed to get raw pixel data bytes")?;
+
+        // Validate length
+        if !raw_bytes.len().is_multiple_of(2) {
+            anyhow::bail!("Invalid 16-bit pixel data length");
+        }
+
+        // Convert big-endian bytes to u16 values, store as little-endian
+        raw_bytes
+            .chunks_exact(2)
+            .flat_map(|chunk| {
+                let value = u16::from_be_bytes([chunk[0], chunk[1]]);
+                value.to_le_bytes()
+            })
             .collect()
     } else {
-        decoded_pixel_data.to_vec::<u8>()
-            .context("Failed to convert pixel data to bytes")?
+        // For little-endian or 8-bit, use the standard decode path
+        let decoded_pixel_data = obj.decode_pixel_data()
+            .context("Failed to decode pixel data")?;
+
+        if bits_allocated == 16 {
+            decoded_pixel_data.to_vec::<u16>()
+                .context("Failed to convert 16-bit pixel data")?
+                .iter()
+                .flat_map(|&v| v.to_le_bytes())
+                .collect()
+        } else {
+            decoded_pixel_data.to_vec::<u8>()
+                .context("Failed to convert pixel data to bytes")?
+        }
     };
 
     // Validate photometric interpretation matches samples per pixel
@@ -460,5 +497,39 @@ mod tests {
 
         // Display trait
         assert_eq!(metadata.photometric_interpretation.to_string(), "MONOCHROME2");
+    }
+
+    #[test]
+    fn test_big_endian_metadata() {
+        let file_path = Path::new(".test-files/MR_small_bigendian.dcm");
+        let obj = open_dicom_file(file_path).expect("Failed to open MR_small_bigendian.dcm");
+        let metadata = extract_dicom_data(&obj).expect("Failed to extract data from MR_small_bigendian.dcm");
+
+        // Image dimensions (small test image)
+        assert_eq!(metadata.rows, 64);
+        assert_eq!(metadata.cols, 64);
+
+        // Bits allocated (16-bit grayscale)
+        assert_eq!(metadata.bits_allocated, 16);
+
+        // Rescale parameters (defaults)
+        assert_eq!(metadata.rescale_slope, 1.0);
+        assert_eq!(metadata.rescale_intercept, 0.0);
+
+        // Photometric interpretation (grayscale)
+        assert_eq!(metadata.photometric_interpretation, PhotometricInterpretation::Monochrome2);
+        assert_eq!(metadata.samples_per_pixel, 1);
+
+        // Transfer syntax - this is the key test for big-endian support
+        let (ts_uid, ts_name) = &metadata.transfer_syntax;
+        assert_eq!(ts_uid, "1.2.840.10008.1.2.2");
+        assert_eq!(ts_name, "Explicit VR Big Endian");
+
+        // Verify is_big_endian() method works
+        assert!(metadata.is_big_endian());
+
+        // Pixel data should be present and correct size
+        // 64x64 pixels, 16-bit per pixel = 8192 bytes
+        assert_eq!(metadata.pixel_data.len(), 64 * 64 * 2);
     }
 }

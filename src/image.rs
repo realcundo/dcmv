@@ -109,13 +109,11 @@ fn extract_grayscale_pixels(metadata: &DicomMetadata) -> Result<Vec<u16>> {
                 anyhow::bail!("Invalid 16-bit pixel data length");
             }
 
+            // Pixel data is normalized to little-endian in dicom.rs
             Ok(metadata
                 .pixel_data
                 .chunks_exact(2)
-                .map(|chunk| {
-                    // Little-endian (standard DICOM)
-                    u16::from_le_bytes([chunk[0], chunk[1]])
-                })
+                .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
                 .collect())
         }
         _ => anyhow::bail!(
