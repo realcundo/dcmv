@@ -102,11 +102,12 @@ pub struct DicomMetadata {
     pub rescale_slope: f64,
     pub rescale_intercept: f64,
     pub pixel_aspect_ratio: Option<(f64, f64)>, // (vertical, horizontal)
+    pub number_of_frames: u32,                   // Number of frames (default 1 for single-frame)
 
     // Photometric interpretation and color space
     pub photometric_interpretation: PhotometricInterpretation,
     pub samples_per_pixel: u16,        // 1 for grayscale, 3 for RGB
-    pub bits_allocated: u16,            // 8 or 16
+    pub bits_allocated: u16,            // 8, 16, or 32
     pub bits_stored: u16,               // Actual bits used (<= bits_allocated)
     pub planar_configuration: Option<u16>, // 0 = interleaved, 1 = planar (RGB only)
 
@@ -201,6 +202,12 @@ pub fn extract_dicom_data(
         .get(tags::PLANAR_CONFIGURATION)
         .and_then(|e| e.to_int::<u16>().ok());
 
+    // Get number of frames (default to 1 for single-frame images)
+    let number_of_frames = obj
+        .get(tags::NUMBER_OF_FRAMES)
+        .and_then(|e| e.to_int::<u32>().ok())
+        .unwrap_or(1);
+
     // Extract patient info
     let patient_name = obj
         .get(tags::PATIENT_NAME)
@@ -265,9 +272,10 @@ pub fn extract_dicom_data(
     #[allow(deprecated)] // Explicit VR Big Endian is retired but still in use
     let is_big_endian = transfer_syntax_uid.as_str() == EXPLICIT_VR_BIG_ENDIAN;
 
-    // Detect if we need to use raw pixel data fallback (for YCbCr, Palette, or other unsupported formats)
+    // Detect if we need to use raw pixel data fallback (for YCbCr, Palette, 32-bit, or other unsupported formats)
     let needs_raw_fallback = photometric_interpretation.is_ycbcr()
-        || matches!(photometric_interpretation, PhotometricInterpretation::Palette);
+        || matches!(photometric_interpretation, PhotometricInterpretation::Palette)
+        || bits_allocated == 32;
 
     // Get pixel data - for big-endian 16-bit, we need special handling
     let pixel_data = if bits_allocated == 16 && is_big_endian {
@@ -293,7 +301,7 @@ pub fn extract_dicom_data(
             })
             .collect()
     } else if needs_raw_fallback {
-        // For YCbCr and other unsupported formats, get raw pixel data directly
+        // For YCbCr, Palette, and 32-bit formats, get raw pixel data directly
         let pixel_data_obj = obj.get(tags::PIXEL_DATA)
             .context("Missing pixel data")?;
 
@@ -305,13 +313,22 @@ pub fn extract_dicom_data(
         let decoded_pixel_data = obj.decode_pixel_data()
             .context("Failed to decode pixel data")?;
 
-        if bits_allocated == 16 {
+        if bits_allocated == 32 {
+            // 32-bit pixel data (grayscale or RGB)
+            // decode_pixel_data() handles RLE decompression automatically
+            decoded_pixel_data.to_vec::<u32>()
+                .context("Failed to convert 32-bit pixel data")?
+                .iter()
+                .flat_map(|&v| v.to_le_bytes())
+                .collect()
+        } else if bits_allocated == 16 {
             decoded_pixel_data.to_vec::<u16>()
                 .context("Failed to convert 16-bit pixel data")?
                 .iter()
                 .flat_map(|&v| v.to_le_bytes())
                 .collect()
         } else {
+            // 8-bit
             decoded_pixel_data.to_vec::<u8>()
                 .context("Failed to convert pixel data to bytes")?
         }
@@ -337,8 +354,8 @@ pub fn extract_dicom_data(
     }
 
     // Validate bits allocated
-    if !matches!(bits_allocated, 8 | 16) {
-        anyhow::bail!("Unsupported bits allocated: {bits_allocated}");
+    if !matches!(bits_allocated, 8 | 16 | 32) {
+        anyhow::bail!("Unsupported bits allocated: {bits_allocated} (expected 8, 16, or 32)");
     }
 
     Ok(DicomMetadata {
@@ -347,6 +364,7 @@ pub fn extract_dicom_data(
         rescale_slope,
         rescale_intercept,
         pixel_aspect_ratio,
+        number_of_frames,
         photometric_interpretation,
         samples_per_pixel,
         bits_allocated,
@@ -699,14 +717,13 @@ mod tests {
         // Pixel data should be present
         assert!(!metadata.pixel_data.is_empty());
 
-        // Image conversion should fail (16-bit RGB → 8-bit RGB not implemented)
+        // Image conversion should fail (16-bit RGB not yet implemented)
         let result = convert_to_image(&metadata);
         assert!(result.is_err(), "16-bit RGB image conversion should fail");
         let err = result.unwrap_err();
-        // The error should mention the issue with 16-bit RGB
-        assert!(err.to_string().contains("Invalid RGB pixel data size") ||
-                err.to_string().contains("Failed to create RGB image buffer"),
-                "Expected RGB pixel data error, got: {}", err);
+        // The error should mention unsupported bit depth
+        assert!(err.to_string().contains("Unsupported bits allocated for RGB"),
+                "Expected unsupported bits error, got: {}", err);
     }
 
     #[test]
@@ -776,5 +793,43 @@ mod tests {
             // RGB pixels can have different channel values
             // Just verify pixels are accessible
         }
+    }
+
+    #[test]
+    fn test_32bit_rgb_metadata() {
+        // 32-bit RGB with RLE compression
+        // NOTE: This test currently fails because the dicom crate doesn't support 32-bit RLE decoding.
+        // When the dicom crate adds 32-bit RLE support, this test will automatically pass.
+        let file_path = Path::new(".test-files/SC_rgb_rle_32bit.dcm");
+        let obj = open_dicom_file(file_path).expect("Failed to open SC_rgb_rle_32bit.dcm");
+
+        // Expect failure due to RLE + 32-bit limitation
+        let result = extract_dicom_data(&obj);
+        assert!(result.is_err(), "32-bit RLE should fail until dicom crate adds support");
+
+        // Verify the error message is informative
+        let err = result.unwrap_err();
+        let err_msg = format!("{err}");
+        assert!(err_msg.contains("pixel data") || err_msg.contains("PixelSequence"),
+            "Error should mention pixel data issue, got: {}", err_msg);
+    }
+
+    #[test]
+    fn test_32bit_multiframe_metadata() {
+        // 32-bit RGB with RLE compression, 2 frames
+        // NOTE: This test currently fails because the dicom crate doesn't support 32-bit RLE decoding.
+        // When the dicom crate adds 32-bit RLE support, this test will automatically pass.
+        let file_path = Path::new(".test-files/SC_rgb_rle_32bit_2frame.dcm");
+        let obj = open_dicom_file(file_path).expect("Failed to open SC_rgb_rle_32bit_2frame.dcm");
+
+        // Expect failure due to RLE + 32-bit limitation
+        let result = extract_dicom_data(&obj);
+        assert!(result.is_err(), "32-bit RLE should fail until dicom crate adds support");
+
+        // Verify the error message is informative
+        let err = result.unwrap_err();
+        let err_msg = format!("{err}");
+        assert!(err_msg.contains("pixel data") || err_msg.contains("PixelSequence"),
+            "Error should mention pixel data issue, got: {}", err_msg);
     }
 }
