@@ -72,6 +72,8 @@ fn extract_ycbcr_pixels(metadata: &DicomMetadata) -> Result<Vec<u8>> {
     let cols = metadata.cols() as usize;
     let pixel_count = rows * cols;
 
+    let data = metadata.pixel_data();
+
     // For multi-frame images, only extract the first frame
     let pixel_data = if metadata.number_of_frames > 1 {
         // Calculate expected size for first frame
@@ -81,23 +83,23 @@ fn extract_ycbcr_pixels(metadata: &DicomMetadata) -> Result<Vec<u8>> {
         let expected_422_size = pixel_count * 2;
 
         // Determine which subsampling we have based on total data size
-        let total_frames = metadata.pixel_data.len() / expected_full_size;
-        let is_422 = if metadata.pixel_data.len().is_multiple_of(expected_full_size) {
+        let total_frames = data.len() / expected_full_size;
+        let is_422 = if data.len().is_multiple_of(expected_full_size) {
             // Check if data size matches 422 subsampling
-            metadata.pixel_data.len() == expected_422_size * total_frames
+            data.len() == expected_422_size * total_frames
         } else {
-            metadata.pixel_data.len() == expected_422_size * total_frames
+            data.len() == expected_422_size * total_frames
         };
 
         let single_frame_size = if is_422 { expected_422_size } else { expected_full_size };
 
-        if metadata.pixel_data.len() > single_frame_size {
-            &metadata.pixel_data[..single_frame_size]
+        if data.len() > single_frame_size {
+            &data[..single_frame_size]
         } else {
-            &metadata.pixel_data
+            data
         }
     } else {
-        &metadata.pixel_data
+        data
     };
 
     // Check if we have subsampled data (YBR_FULL_422)

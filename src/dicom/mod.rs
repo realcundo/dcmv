@@ -12,6 +12,7 @@ mod validation;
 // Re-export public API
 pub use photometric::PhotometricInterpretation;
 pub use metadata::DicomMetadata;
+pub use pixel_data::DecodedPixelData;
 
 use anyhow::{Context, Result};
 use dicom::object::{
@@ -90,7 +91,7 @@ pub fn extract_dicom_data(
         bits_allocated,
         bits_stored,
         planar_configuration,
-        pixel_data,
+        pixel_data_format: pixel_data,
         patient_name,
         patient_id,
         patient_birth_date,
@@ -137,7 +138,7 @@ mod tests {
         assert!(metadata.planar_configuration.is_none());
 
         // Pixel data
-        assert!(!metadata.pixel_data.is_empty());
+        assert!(!metadata.pixel_data().is_empty());
 
         // Image conversion should succeed
         let image = convert_to_image(&metadata).expect("Failed to convert file1.dcm to image");
@@ -217,7 +218,7 @@ mod tests {
         assert!(metadata.planar_configuration.is_some());
 
         // Pixel data
-        assert!(!metadata.pixel_data.is_empty());
+        assert!(!metadata.pixel_data().is_empty());
 
         // Image conversion should succeed
         let image = convert_to_image(&metadata).expect("Failed to convert file2.dcm to image");
@@ -294,7 +295,7 @@ mod tests {
         assert!(metadata.planar_configuration.is_none());
 
         // Pixel data
-        assert!(!metadata.pixel_data.is_empty());
+        assert!(!metadata.pixel_data().is_empty());
 
         // Image conversion should succeed
         let image = convert_to_image(&metadata).expect("Failed to convert file3.dcm to image");
@@ -377,7 +378,7 @@ mod tests {
 
         // Pixel data should be present and correct size
         // 64x64 pixels, 16-bit per pixel = 8192 bytes
-        assert_eq!(metadata.pixel_data.len(), 64 * 64 * 2);
+        assert_eq!(metadata.pixel_data().len(), 64 * 64 * 2);
 
         // Image conversion should succeed
         let image = convert_to_image(&metadata).expect("Failed to convert MR_small_bigendian.dcm to image");
@@ -435,7 +436,7 @@ mod tests {
         assert_eq!(metadata.samples_per_pixel, 3);
 
         // Pixel data should be present
-        assert!(!metadata.pixel_data.is_empty());
+        assert!(!metadata.pixel_data().is_empty());
 
         // Image conversion should fail (16-bit RGB not yet implemented)
         let result = convert_to_image(&metadata);
@@ -462,7 +463,7 @@ mod tests {
         assert_eq!(metadata.samples_per_pixel, 1);
 
         // Pixel data should be present (raw bytes, since we use fallback for palette)
-        assert!(!metadata.pixel_data.is_empty());
+        assert!(!metadata.pixel_data().is_empty());
 
         // Image conversion should fail (palette → RGB not implemented)
         let result = convert_to_image(&metadata);
@@ -486,7 +487,7 @@ mod tests {
         assert_eq!(metadata.samples_per_pixel, 3);
 
         // Pixel data should be present
-        assert!(!metadata.pixel_data.is_empty());
+        assert!(!metadata.pixel_data().is_empty());
 
         // Image conversion should now succeed
         let image = convert_to_image(&metadata).expect("Failed to convert YCbCr to RGB image");
@@ -606,7 +607,7 @@ mod tests {
         assert!(metadata.planar_configuration.is_none());
 
         // Pixel data should be present (decoded from JPEG2000)
-        assert!(!metadata.pixel_data.is_empty());
+        assert!(!metadata.pixel_data().is_empty());
 
         // Image conversion should succeed
         let image = convert_to_image(&metadata).expect("Failed to convert JPEG2000 image to RGB");
@@ -686,7 +687,7 @@ mod tests {
         assert!(metadata.planar_configuration.is_none());
 
         // Pixel data should be present (decoded from JPEG2000)
-        assert!(!metadata.pixel_data.is_empty());
+        assert!(!metadata.pixel_data().is_empty());
 
         // Image conversion should succeed
         let image = convert_to_image(&metadata).expect("Failed to convert JPEG2000 image to RGB");

@@ -21,7 +21,15 @@ use crate::dicom::{DicomMetadata, PhotometricInterpretation};
 ///
 /// This is the main entry point for image conversion, dispatching to the
 /// appropriate conversion function based on the photometric interpretation.
+///
+/// For JPEG-compressed YCbCr images, the decoder already converts to RGB,
+/// so we skip the YCbCr conversion step.
 pub fn convert_to_image(metadata: &DicomMetadata) -> Result<DynamicImage> {
+    // Short-circuit: if pixel data is already RGB (from JPEG decoder), convert directly
+    if metadata.is_already_rgb() {
+        return convert_rgb(metadata);
+    }
+
     match metadata.photometric_interpretation {
         PhotometricInterpretation::Monochrome1 | PhotometricInterpretation::Monochrome2 => {
             convert_grayscale(metadata)
@@ -49,6 +57,8 @@ mod tests {
     fn test_convert_grayscale_dispatch() {
         // Test that grayscale photometric interpretations dispatch correctly
         // This is a compile-time check that the module structure is correct
+        use crate::dicom::DecodedPixelData;
+
         let metadata = DicomMetadata {
             dimensions: crate::types::Dimensions::new(64, 64),
             rescale: crate::types::RescaleParams::new(1.0, 0.0),
@@ -59,7 +69,7 @@ mod tests {
             bits_allocated: 16,
             bits_stored: 16,
             planar_configuration: None,
-            pixel_data: vec![0u8; 64 * 64 * 2],
+            pixel_data_format: DecodedPixelData::Native(vec![0u8; 64 * 64 * 2]),
             patient_name: None,
             patient_id: None,
             patient_birth_date: None,

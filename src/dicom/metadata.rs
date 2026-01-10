@@ -2,6 +2,7 @@
 
 use crate::types::*;
 use super::photometric::PhotometricInterpretation;
+use super::pixel_data::DecodedPixelData;
 
 /// DICOM image metadata extracted from the file
 #[derive(Debug, Clone)]
@@ -19,8 +20,8 @@ pub struct DicomMetadata {
     pub bits_stored: u16,               // Actual bits used (<= bits_allocated)
     pub planar_configuration: Option<u16>, // 0 = interleaved, 1 = planar (RGB only)
 
-    // Raw pixel data as bytes (supports both 8-bit RGB and 16-bit grayscale)
-    pub pixel_data: Vec<u8>,
+    // Pixel data with format information
+    pub(crate) pixel_data_format: DecodedPixelData,
 
     // Display metadata fields
     pub patient_name: Option<String>,
@@ -70,5 +71,22 @@ impl DicomMetadata {
     #[allow(deprecated)] // Explicit VR Big Endian is retired but still in use
     pub fn is_big_endian(&self) -> bool {
         self.transfer_syntax.is_big_endian()
+    }
+
+    /// Get the pixel data as a byte slice
+    #[inline(always)]
+    #[must_use]
+    pub fn pixel_data(&self) -> &[u8] {
+        match &self.pixel_data_format {
+            DecodedPixelData::YcbCr(data) | DecodedPixelData::Rgb(data) | DecodedPixelData::Native(data) => data,
+        }
+    }
+
+    /// Returns true if the pixel data is already in RGB format
+    /// (e.g., JPEG decoder already converted YCbCr to RGB)
+    #[inline(always)]
+    #[must_use]
+    pub fn is_already_rgb(&self) -> bool {
+        matches!(self.pixel_data_format, DecodedPixelData::Rgb(_))
     }
 }

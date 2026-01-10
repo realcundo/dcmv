@@ -11,31 +11,70 @@ use dicom::object::{
 };
 use dicom::pixeldata::PixelDecoder;
 
+/// Format of extracted pixel data
+///
+/// This enum tracks whether pixel data needs further conversion or is already
+/// in a displayable format. The `Vec<u8>` is moved (not copied) when the enum
+/// is transferred, ensuring zero-copy of the actual pixel buffer.
+#[derive(Debug, Clone)]
+pub enum DecodedPixelData {
+    /// YCbCr pixel data that needs conversion to RGB
+    YcbCr(Vec<u8>),
+    /// RGB pixel data (already converted or originally RGB)
+    Rgb(Vec<u8>),
+    /// Grayscale or other pixel data in native format
+    Native(Vec<u8>),
+}
+
 /// Extract pixel data from DICOM object, handling compression and endianness
+///
+/// Returns a `DecodedPixelData` enum indicating the format of the pixel data.
+/// For JPEG-compressed YCbCr images, the decoder already converts to RGB,
+/// so we return `Rgb` to avoid double-conversion.
 pub fn extract_pixel_data(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
     bits_allocated: u16,
     photometric_interpretation: &str,
     transfer_syntax_uid: &str,
-) -> Result<Vec<u8>> {
+) -> Result<DecodedPixelData> {
     // Explicit VR Big Endian UID (retired but still in use in legacy files)
     const EXPLICIT_VR_BIG_ENDIAN_UID: &str = "1.2.840.10008.1.2.2";
 
     let is_big_endian = transfer_syntax_uid == EXPLICIT_VR_BIG_ENDIAN_UID;
     let is_compressed = detect_compression(transfer_syntax_uid);
-    let needs_raw_fallback = !is_compressed && (
-        photometric_interpretation.contains("YBR")
-        || photometric_interpretation == "PALETTE COLOR"
-        || bits_allocated == 32
-    );
+    let is_ycbcr = photometric_interpretation.contains("YBR");
 
-    if bits_allocated == 16 && is_big_endian {
-        extract_big_endian_16bit(obj)
-    } else if needs_raw_fallback {
-        extract_raw_pixel_data(obj)
+    // Determine the data format based on compression and photometric interpretation
+    let format = if is_compressed && is_ycbcr {
+        // JPEG decoder converts YCbCr → RGB automatically
+        DecodedPixelFormat::Rgb
+    } else if is_ycbcr || photometric_interpretation == "PALETTE COLOR" || bits_allocated == 32 {
+        DecodedPixelFormat::YcbCr
     } else {
-        extract_decoded_pixel_data(obj, bits_allocated)
-    }
+        DecodedPixelFormat::Native
+    };
+
+    let data = if bits_allocated == 16 && is_big_endian {
+        extract_big_endian_16bit(obj)?
+    } else if !is_compressed && matches!(format, DecodedPixelFormat::YcbCr) {
+        extract_raw_pixel_data(obj)?
+    } else {
+        extract_decoded_pixel_data(obj, bits_allocated)?
+    };
+
+    Ok(match format {
+        DecodedPixelFormat::YcbCr => DecodedPixelData::YcbCr(data),
+        DecodedPixelFormat::Rgb => DecodedPixelData::Rgb(data),
+        DecodedPixelFormat::Native => DecodedPixelData::Native(data),
+    })
+}
+
+/// Internal format classification for pixel data
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DecodedPixelFormat {
+    YcbCr,
+    Rgb,
+    Native,
 }
 
 /// Detect if transfer syntax uses compression

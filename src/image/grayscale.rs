@@ -71,20 +71,21 @@ pub fn convert_grayscale(metadata: &DicomMetadata) -> Result<DynamicImage> {
 
 /// Extract grayscale pixel data from raw bytes based on bit depth
 fn extract_grayscale_pixels(metadata: &DicomMetadata) -> Result<Vec<u16>> {
+    let pixel_data = metadata.pixel_data();
+
     match metadata.bits_allocated {
         8 => {
             // 8-bit grayscale: each byte is a pixel
-            Ok(metadata.pixel_data.iter().map(|&b| u16::from(b)).collect())
+            Ok(pixel_data.iter().map(|&b| u16::from(b)).collect())
         }
         16 => {
             // 16-bit grayscale: each pair of bytes is a pixel
-            if !metadata.pixel_data.len().is_multiple_of(2) {
+            if !pixel_data.len().is_multiple_of(2) {
                 anyhow::bail!("Invalid 16-bit pixel data length");
             }
 
             // Pixel data is normalized to little-endian in dicom.rs
-            Ok(metadata
-                .pixel_data
+            Ok(pixel_data
                 .chunks_exact(2)
                 .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
                 .collect())
@@ -92,13 +93,12 @@ fn extract_grayscale_pixels(metadata: &DicomMetadata) -> Result<Vec<u16>> {
         32 => {
             // 32-bit grayscale: normalize to 16-bit for processing
             // Use min/max normalization to preserve dynamic range
-            if !metadata.pixel_data.len().is_multiple_of(4) {
+            if !pixel_data.len().is_multiple_of(4) {
                 anyhow::bail!("Invalid 32-bit pixel data length");
             }
 
             // Extract 32-bit values
-            let values: Vec<u32> = metadata
-                .pixel_data
+            let values: Vec<u32> = pixel_data
                 .chunks_exact(4)
                 .map(|chunk| u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
                 .collect();

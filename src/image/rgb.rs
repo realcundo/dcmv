@@ -43,11 +43,13 @@ fn extract_rgb_8bit(metadata: &DicomMetadata) -> Result<Vec<u8>> {
     let pixels_per_frame = metadata.rows() as usize * metadata.cols() as usize;
     let expected_size = pixels_per_frame * 3 * bytes_per_sample;
 
+    let data = metadata.pixel_data();
+
     // For multi-frame images, only extract the first frame
-    let pixel_data = if metadata.pixel_data.len() > expected_size {
-        &metadata.pixel_data[..expected_size]
+    let pixel_data = if data.len() > expected_size {
+        &data[..expected_size]
     } else {
-        &metadata.pixel_data
+        data
     };
 
     if pixel_data.len() != expected_size {
@@ -89,10 +91,11 @@ fn extract_rgb_32bit(metadata: &DicomMetadata) -> Result<Vec<u8>> {
     let bytes_per_sample = (metadata.bits_allocated / 8) as usize;
     let expected_size = pixel_count * 3 * bytes_per_sample;
 
-    let pixel_data = if metadata.pixel_data.len() > expected_size {
-        &metadata.pixel_data[..expected_size]
+    let data = metadata.pixel_data();
+    let pixel_data = if data.len() > expected_size {
+        &data[..expected_size]
     } else {
-        &metadata.pixel_data
+        data
     };
 
     if pixel_data.len() != expected_size {
