@@ -1,5 +1,5 @@
-mod normalization;
 mod grayscale;
+mod normalization;
 mod rgb;
 mod ycbcr;
 
@@ -7,10 +7,16 @@ pub use grayscale::convert_grayscale;
 pub use rgb::convert_rgb;
 pub use ycbcr::convert_ycbcr;
 
+use crate::dicom::{DicomMetadata, PhotometricInterpretation};
 use anyhow::Result;
 use image::DynamicImage;
-use crate::dicom::{DicomMetadata, PhotometricInterpretation};
 
+/// Convert DICOM metadata and pixel data to a `DynamicImage`
+///
+/// # Errors
+///
+/// Returns an error if the photometric interpretation is unsupported or
+/// if the conversion fails
 pub fn convert_to_image(metadata: &DicomMetadata) -> Result<DynamicImage> {
     if metadata.is_already_rgb() {
         return convert_rgb(metadata);
@@ -20,9 +26,7 @@ pub fn convert_to_image(metadata: &DicomMetadata) -> Result<DynamicImage> {
         PhotometricInterpretation::Monochrome1 | PhotometricInterpretation::Monochrome2 => {
             convert_grayscale(metadata)
         }
-        PhotometricInterpretation::Rgb => {
-            convert_rgb(metadata)
-        }
+        PhotometricInterpretation::Rgb => convert_rgb(metadata),
         PhotometricInterpretation::YbrFull | PhotometricInterpretation::YbrFull422 => {
             convert_ycbcr(metadata)
         }

@@ -1,13 +1,12 @@
 #[inline]
 #[must_use]
 pub fn find_min_max(values: &[u32]) -> (f32, f32) {
-    values.iter().fold(
-        (f32::INFINITY, f32::NEG_INFINITY),
-        |(min, max), &val| {
+    values
+        .iter()
+        .fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), &val| {
             let val_f32 = val as f32;
             (min.min(val_f32), max.max(val_f32))
-        },
-    )
+        })
 }
 
 #[inline]

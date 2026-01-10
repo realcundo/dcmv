@@ -1,5 +1,6 @@
 //! Domain-specific types for DICOM metadata
 
+use dicom::transfer_syntax::entries;
 use std::fmt;
 
 /// DICOM transfer syntax (UID, name)
@@ -10,6 +11,7 @@ pub struct TransferSyntax {
 }
 
 impl TransferSyntax {
+    #[must_use]
     pub fn new(uid: String, name: String) -> Self {
         Self { uid, name }
     }
@@ -17,26 +19,31 @@ impl TransferSyntax {
     #[inline(always)]
     #[must_use]
     pub fn is_big_endian(&self) -> bool {
-        self.uid == "1.2.840.10008.1.2.2" // Explicit VR Big Endian
+        self.uid == entries::EXPLICIT_VR_BIG_ENDIAN.uid()
     }
 
     #[inline(always)]
     #[must_use]
     pub fn is_jpeg_compressed(&self) -> bool {
-        self.uid.contains("1.2.840.10008.1.2.4.50") || // JPEG Baseline
-            self.uid.contains("1.2.840.10008.1.2.4") // JPEG family
+        self.uid == entries::JPEG_BASELINE.uid()
+            || self.uid == entries::JPEG_EXTENDED.uid()
+            || self.uid == entries::JPEG_LOSSLESS_NON_HIERARCHICAL.uid()
+            || self.uid == entries::JPEG_LOSSLESS_NON_HIERARCHICAL_FIRST_ORDER_PREDICTION.uid()
+            || self.uid.starts_with("1.2.840.10008.1.2.4") // JPEG family fallback
     }
 
     #[inline(always)]
     #[must_use]
     pub fn is_jpeg2000(&self) -> bool {
-        self.uid.contains("JPEG2000")
+        self.uid == entries::JPEG_2000_IMAGE_COMPRESSION.uid()
+            || self.uid == entries::JPEG_2000_IMAGE_COMPRESSION_LOSSLESS_ONLY.uid()
+            || self.uid.contains("JPEG2000")
     }
 
     #[inline(always)]
     #[must_use]
     pub fn is_rle_compressed(&self) -> bool {
-        self.uid.contains("1.2.840.10008.1.2.5") // RLE lossless
+        self.uid == entries::RLE_LOSSLESS.uid()
     }
 
     #[inline(always)]
@@ -60,6 +67,7 @@ pub struct SOPClass {
 }
 
 impl SOPClass {
+    #[must_use]
     pub fn new(uid: String, name: String) -> Self {
         Self { uid, name }
     }
@@ -78,6 +86,7 @@ pub struct Dimensions {
 }
 
 impl Dimensions {
+    #[must_use]
     pub fn new(rows: u16, cols: u16) -> Self {
         Self { rows, cols }
     }
@@ -109,6 +118,7 @@ pub struct RescaleParams {
 }
 
 impl RescaleParams {
+    #[must_use]
     pub fn new(slope: f64, intercept: f64) -> Self {
         Self { slope, intercept }
     }
@@ -130,7 +140,12 @@ impl RescaleParams {
 
 impl fmt::Display for RescaleParams {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "slope={slope}, intercept={intercept}", slope = self.slope, intercept = self.intercept)
+        write!(
+            f,
+            "slope={slope}, intercept={intercept}",
+            slope = self.slope,
+            intercept = self.intercept
+        )
     }
 }
 
@@ -141,6 +156,7 @@ pub struct PixelAspectRatio {
 }
 
 impl PixelAspectRatio {
+    #[must_use]
     pub fn new(vertical: f64, horizontal: f64) -> Self {
         Self {
             vertical,

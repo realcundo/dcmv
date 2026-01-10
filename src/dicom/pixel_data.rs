@@ -1,10 +1,7 @@
 use anyhow::{Context, Result};
-use dicom::object::{
-    FileDicomObject,
-    InMemDicomObject,
-    StandardDataDictionary
-};
+use dicom::object::{FileDicomObject, InMemDicomObject, StandardDataDictionary};
 use dicom::pixeldata::PixelDecoder;
+use dicom::transfer_syntax::entries;
 
 #[derive(Debug, Clone)]
 pub enum DecodedPixelData {
@@ -20,9 +17,7 @@ pub fn extract_pixel_data(
     transfer_syntax_uid: &str,
     planar_configuration: Option<u16>,
 ) -> Result<DecodedPixelData> {
-    const EXPLICIT_VR_BIG_ENDIAN_UID: &str = "1.2.840.10008.1.2.2";
-
-    let is_big_endian = transfer_syntax_uid == EXPLICIT_VR_BIG_ENDIAN_UID;
+    let is_big_endian = transfer_syntax_uid == entries::EXPLICIT_VR_BIG_ENDIAN.uid();
     let is_compressed = detect_compression(transfer_syntax_uid);
     let is_ycbcr = photometric_interpretation.contains("YBR");
 
@@ -30,11 +25,20 @@ pub fn extract_pixel_data(
         return extract_via_dynamic_image(obj);
     }
 
-    if photometric_interpretation == "RGB" && planar_configuration == Some(1) && bits_allocated == 8 && !is_compressed {
+    if photometric_interpretation == "RGB"
+        && planar_configuration == Some(1)
+        && bits_allocated == 8
+        && !is_compressed
+    {
         return extract_via_dynamic_image(obj);
     }
 
-    if bits_allocated == 16 && is_big_endian && !is_ycbcr && photometric_interpretation == "RGB" && !is_compressed {
+    if bits_allocated == 16
+        && is_big_endian
+        && !is_ycbcr
+        && photometric_interpretation == "RGB"
+        && !is_compressed
+    {
         return extract_via_dynamic_image(obj);
     }
 
@@ -70,14 +74,14 @@ fn extract_via_dynamic_image(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
 ) -> Result<DecodedPixelData> {
     use dicom::pixeldata::{ConvertOptions, PixelDecoder};
-    use image::DynamicImage::*;
+    use image::DynamicImage::ImageRgb8;
 
     let decoded_pixel_data = obj
         .decode_pixel_data()
         .context("Failed to decode pixel data")?;
 
-    let options = ConvertOptions::new()
-        .with_modality_lut(dicom::pixeldata::ModalityLutOption::None);
+    let options =
+        ConvertOptions::new().with_modality_lut(dicom::pixeldata::ModalityLutOption::None);
 
     let dynamic_image = decoded_pixel_data
         .to_dynamic_image_with_options(0, &options)
@@ -99,10 +103,15 @@ fn extract_via_dynamic_image(
 #[inline]
 #[must_use]
 fn detect_compression(uid: &str) -> bool {
-    uid.contains("1.2.840.10008.1.2.4")   // JPEG family
-        || uid.contains("1.2.840.10008.1.2.4.50")  // JPEG Baseline
-        || uid.contains("1.2.840.10008.1.2.5")   // RLE lossless
-        || uid.contains("JPEG2000")
+    uid == entries::JPEG_BASELINE.uid()
+        || uid == entries::JPEG_EXTENDED.uid()
+        || uid == entries::JPEG_LOSSLESS_NON_HIERARCHICAL.uid()
+        || uid == entries::JPEG_LOSSLESS_NON_HIERARCHICAL_FIRST_ORDER_PREDICTION.uid()
+        || uid == entries::JPEG_2000_IMAGE_COMPRESSION.uid()
+        || uid == entries::JPEG_2000_IMAGE_COMPRESSION_LOSSLESS_ONLY.uid()
+        || uid == entries::RLE_LOSSLESS.uid()
+        || uid.starts_with("1.2.840.10008.1.2.4") // JPEG family fallback
+        || uid.contains("JPEG2000") // JPEG2000 fallback
 }
 
 fn extract_raw_pixel_data(
@@ -110,9 +119,7 @@ fn extract_raw_pixel_data(
 ) -> Result<Vec<u8>> {
     use dicom::dictionary_std::tags;
 
-    let pixel_data_obj = obj
-        .get(tags::PIXEL_DATA)
-        .context("Missing pixel data")?;
+    let pixel_data_obj = obj.get(tags::PIXEL_DATA).context("Missing pixel data")?;
 
     Ok(pixel_data_obj
         .to_bytes()

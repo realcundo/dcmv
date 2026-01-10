@@ -1,16 +1,16 @@
 use crate::dicom::DicomMetadata;
 
 pub fn print_metadata(metadata: &DicomMetadata) {
-    print_field("Patient Name", &metadata.patient_name);
-    print_field("Patient ID", &metadata.patient_id);
-    print_field("Birth Date", &metadata.patient_birth_date);
+    print_field("Patient Name", metadata.patient_name.as_ref());
+    print_field("Patient ID", metadata.patient_id.as_ref());
+    print_field("Birth Date", metadata.patient_birth_date.as_ref());
 
-    print_field("Accession Number", &metadata.accession_number);
-    print_field("Study Date", &metadata.study_date);
-    print_field("Study Description", &metadata.study_description);
-    print_field("Modality", &metadata.modality);
+    print_field("Accession Number", metadata.accession_number.as_ref());
+    print_field("Study Date", metadata.study_date.as_ref());
+    print_field("Study Description", metadata.study_description.as_ref());
+    print_field("Modality", metadata.modality.as_ref());
 
-    print_field("Series Description", &metadata.series_description);
+    print_field("Series Description", metadata.series_description.as_ref());
 
     print_dimensions(metadata);
 
@@ -25,7 +25,7 @@ pub fn print_metadata(metadata: &DicomMetadata) {
     println!();
 }
 
-fn print_field(name: &str, value: &Option<String>) {
+fn print_field(name: &str, value: Option<&String>) {
     if let Some(v) = value {
         println!("{name:20}: {v}");
     }
@@ -35,10 +35,7 @@ fn print_dimensions(metadata: &DicomMetadata) {
     let dims = format!("{}x{}", metadata.cols(), metadata.rows());
     println!(
         "{:20}: {}x{} [{}]",
-        "Dimensions",
-        dims,
-        metadata.samples_per_pixel,
-        metadata.photometric_interpretation
+        "Dimensions", dims, metadata.samples_per_pixel, metadata.photometric_interpretation
     );
 }
 

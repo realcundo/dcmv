@@ -1,4 +1,4 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use dcmv::dicom;
 use dcmv::image;
 use std::hint::black_box;
@@ -91,7 +91,6 @@ criterion_group!(
     // Primary baseline (these run by default with `cargo bench`)
     bench_full_pipeline_cold,
     bench_full_pipeline_warm,
-
     // Diagnostic benchmarks (help identify bottlenecks)
     bench_dicom_parsing,
     bench_image_conversion,

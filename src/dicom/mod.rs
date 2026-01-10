@@ -1,33 +1,39 @@
 //! DICOM file parsing and metadata extraction
 
-mod photometric;
 mod metadata;
 mod parser;
+mod photometric;
 mod pixel_data;
 mod validation;
 
 // Re-export public API
-pub use photometric::PhotometricInterpretation;
 pub use metadata::DicomMetadata;
+pub use photometric::PhotometricInterpretation;
 pub use pixel_data::DecodedPixelData;
 
 use anyhow::{Context, Result};
-use dicom::object::{
-    open_file,
-    FileDicomObject,
-    InMemDicomObject,
-    StandardDataDictionary
-};
+use dicom::object::{FileDicomObject, InMemDicomObject, StandardDataDictionary, open_file};
 use std::path::Path;
 use std::str::FromStr;
 
 /// Open and parse a DICOM file
-pub fn open_dicom_file(file_path: &Path) -> Result<FileDicomObject<InMemDicomObject<StandardDataDictionary>>> {
+///
+/// # Errors
+///
+/// Returns an error if the file cannot be read or is not a valid DICOM file
+pub fn open_dicom_file(
+    file_path: &Path,
+) -> Result<FileDicomObject<InMemDicomObject<StandardDataDictionary>>> {
     open_file(file_path)
         .with_context(|| format!("Failed to open DICOM file: {}", file_path.display()))
 }
 
 /// Extract metadata and pixel data from a DICOM object
+///
+/// # Errors
+///
+/// Returns an error if required DICOM tags are missing or if the pixel data
+/// cannot be decoded
 pub fn extract_dicom_data(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
 ) -> Result<DicomMetadata> {
@@ -38,13 +44,14 @@ pub fn extract_dicom_data(
     let pixel_aspect_ratio = parser::extract_pixel_aspect_ratio(obj);
     let number_of_frames = parser::extract_number_of_frames(obj);
     let samples_per_pixel = parser::extract_samples_per_pixel(obj);
-    let (bits_allocated, bits_stored) = parser::extract_bit_depth(obj)?;
+    let (bits_allocated, bits_stored) = parser::extract_bit_depth(obj);
     let planar_configuration = parser::extract_planar_configuration(obj);
     let sop_class = parser::extract_sop_class(obj);
     let transfer_syntax = parser::extract_transfer_syntax(obj);
 
     let (patient_name, patient_id, patient_birth_date) = parser::extract_patient_metadata(obj);
-    let (accession_number, study_date, study_description, modality) = parser::extract_study_metadata(obj);
+    let (accession_number, study_date, study_description, modality) =
+        parser::extract_study_metadata(obj);
     let (series_description, slice_thickness) = parser::extract_series_metadata(obj);
 
     let photometric_interpretation = obj
@@ -53,7 +60,7 @@ pub fn extract_dicom_data(
         .map(|s| {
             let s_str = s.as_ref();
             PhotometricInterpretation::from_str(s_str)
-                .map_err(|_| anyhow::anyhow!("Unknown photometric interpretation: {s_str}"))
+                .map_err(|()| anyhow::anyhow!("Unknown photometric interpretation: {s_str}"))
         })
         .transpose()
         .context("Failed to parse photometric interpretation")?
@@ -124,7 +131,10 @@ mod tests {
         assert_eq!(metadata.rescale_intercept(), 0.0);
 
         // Photometric interpretation
-        assert_eq!(metadata.photometric_interpretation, PhotometricInterpretation::Monochrome1);
+        assert_eq!(
+            metadata.photometric_interpretation,
+            PhotometricInterpretation::Monochrome1
+        );
         assert_eq!(metadata.samples_per_pixel, 1);
 
         // Bit depth
@@ -166,8 +176,8 @@ mod tests {
         for (x, y) in sample_coords {
             let pixel = rgb.get_pixel(x, y);
             // For grayscale images, R=G=B
-            assert_eq!(pixel[0], pixel[1], "Grayscale should have R=G at ({},{})", x, y);
-            assert_eq!(pixel[1], pixel[2], "Grayscale should have G=B at ({},{})", x, y);
+            assert_eq!(pixel[0], pixel[1], "Grayscale should have R=G at ({x},{y})");
+            assert_eq!(pixel[1], pixel[2], "Grayscale should have G=B at ({x},{y})");
         }
 
         // Sample 10 specific pixel values to catch decoding regressions
@@ -206,7 +216,10 @@ mod tests {
         assert_eq!(metadata.transfer_syntax.name, "Implicit VR Little Endian");
 
         // Display trait
-        assert_eq!(metadata.photometric_interpretation.to_string(), "MONOCHROME1");
+        assert_eq!(
+            metadata.photometric_interpretation.to_string(),
+            "MONOCHROME1"
+        );
     }
 
     #[test]
@@ -224,7 +237,10 @@ mod tests {
         assert_eq!(metadata.rescale_intercept(), 0.0);
 
         // Photometric interpretation (RGB)
-        assert_eq!(metadata.photometric_interpretation, PhotometricInterpretation::Rgb);
+        assert_eq!(
+            metadata.photometric_interpretation,
+            PhotometricInterpretation::Rgb
+        );
         assert_eq!(metadata.samples_per_pixel, 3);
 
         // Bit depth (RGB is typically 8-bit)
@@ -301,7 +317,10 @@ mod tests {
         assert_eq!(metadata.rescale_intercept(), 0.0);
 
         // Photometric interpretation
-        assert_eq!(metadata.photometric_interpretation, PhotometricInterpretation::Monochrome2);
+        assert_eq!(
+            metadata.photometric_interpretation,
+            PhotometricInterpretation::Monochrome2
+        );
         assert_eq!(metadata.samples_per_pixel, 1);
 
         // Bit depth
@@ -343,8 +362,8 @@ mod tests {
         for (x, y) in sample_coords {
             let pixel = rgb.get_pixel(x, y);
             // For grayscale images, R=G=B
-            assert_eq!(pixel[0], pixel[1], "Grayscale should have R=G at ({},{})", x, y);
-            assert_eq!(pixel[1], pixel[2], "Grayscale should have G=B at ({},{})", x, y);
+            assert_eq!(pixel[0], pixel[1], "Grayscale should have R=G at ({x},{y})");
+            assert_eq!(pixel[1], pixel[2], "Grayscale should have G=B at ({x},{y})");
         }
 
         // Sample 10 specific pixel values to catch decoding regressions
@@ -375,21 +394,28 @@ mod tests {
         assert!(metadata.sop_class.is_some());
         let sc = metadata.sop_class.as_ref().unwrap();
         assert_eq!(sc.uid, "1.2.840.10008.5.1.4.1.1.1.2");
-        assert_eq!(sc.name, "Digital Mammography X-Ray Image Storage - For Presentation");
+        assert_eq!(
+            sc.name,
+            "Digital Mammography X-Ray Image Storage - For Presentation"
+        );
 
         // Transfer syntax checks below
         assert_eq!(metadata.transfer_syntax.uid, "1.2.840.10008.1.2");
         assert_eq!(metadata.transfer_syntax.name, "Implicit VR Little Endian");
 
         // Display trait
-        assert_eq!(metadata.photometric_interpretation.to_string(), "MONOCHROME2");
+        assert_eq!(
+            metadata.photometric_interpretation.to_string(),
+            "MONOCHROME2"
+        );
     }
 
     #[test]
     fn test_big_endian_metadata() {
         let file_path = Path::new(".test-files/MR_small_bigendian.dcm");
         let obj = open_dicom_file(file_path).expect("Failed to open MR_small_bigendian.dcm");
-        let metadata = extract_dicom_data(&obj).expect("Failed to extract data from MR_small_bigendian.dcm");
+        let metadata =
+            extract_dicom_data(&obj).expect("Failed to extract data from MR_small_bigendian.dcm");
 
         // Image dimensions (small test image)
         assert_eq!(metadata.rows(), 64);
@@ -404,7 +430,10 @@ mod tests {
         assert_eq!(metadata.rescale_intercept(), 0.0);
 
         // Photometric interpretation (grayscale)
-        assert_eq!(metadata.photometric_interpretation, PhotometricInterpretation::Monochrome2);
+        assert_eq!(
+            metadata.photometric_interpretation,
+            PhotometricInterpretation::Monochrome2
+        );
         assert_eq!(metadata.samples_per_pixel, 1);
 
         // Transfer syntax - this is the key test for big-endian support
@@ -420,7 +449,8 @@ mod tests {
         assert_eq!(metadata.pixel_data().len(), 64 * 64 * 2);
 
         // Image conversion should succeed
-        let image = convert_to_image(&metadata).expect("Failed to convert MR_small_bigendian.dcm to image");
+        let image =
+            convert_to_image(&metadata).expect("Failed to convert MR_small_bigendian.dcm to image");
         assert_eq!(image.width(), u32::from(metadata.cols()));
         assert_eq!(image.height(), u32::from(metadata.rows()));
 
@@ -448,8 +478,8 @@ mod tests {
         for (x, y) in sample_coords {
             let pixel = rgb.get_pixel(x, y);
             // For grayscale images, R=G=B
-            assert_eq!(pixel[0], pixel[1], "Grayscale should have R=G at ({},{})", x, y);
-            assert_eq!(pixel[1], pixel[2], "Grayscale should have G=B at ({},{})", x, y);
+            assert_eq!(pixel[0], pixel[1], "Grayscale should have R=G at ({x},{y})");
+            assert_eq!(pixel[1], pixel[2], "Grayscale should have G=B at ({x},{y})");
         }
 
         // Sample 10 specific pixel values to catch decoding regressions
@@ -488,12 +518,16 @@ mod tests {
         // because we only support 8-bit RGB currently
         let file_path = Path::new(".test-files/SC_rgb_rle_16bit.dcm");
         let obj = open_dicom_file(file_path).expect("Failed to open SC_rgb_rle_16bit.dcm");
-        let metadata = extract_dicom_data(&obj).expect("Failed to extract data from SC_rgb_rle_16bit.dcm");
+        let metadata =
+            extract_dicom_data(&obj).expect("Failed to extract data from SC_rgb_rle_16bit.dcm");
 
         // Verify 16-bit RGB metadata
         assert_eq!(metadata.bits_allocated, 16);
         assert_eq!(metadata.bits_stored, 16);
-        assert_eq!(metadata.photometric_interpretation, PhotometricInterpretation::Rgb);
+        assert_eq!(
+            metadata.photometric_interpretation,
+            PhotometricInterpretation::Rgb
+        );
         assert_eq!(metadata.samples_per_pixel, 3);
 
         // Pixel data should be present
@@ -504,8 +538,11 @@ mod tests {
         assert!(result.is_err(), "16-bit RGB image conversion should fail");
         let err = result.unwrap_err();
         // The error should mention unsupported bit depth
-        assert!(err.to_string().contains("Unsupported bits allocated for RGB"),
-                "Expected unsupported bits error, got: {}", err);
+        assert!(
+            err.to_string()
+                .contains("Unsupported bits allocated for RGB"),
+            "Expected unsupported bits error, got: {err}"
+        );
     }
 
     #[test]
@@ -515,12 +552,16 @@ mod tests {
         // because we don't yet implement palette color lookup table decoding
         let file_path = Path::new(".test-files/examples_palette.dcm");
         let obj = open_dicom_file(file_path).expect("Failed to open examples_palette.dcm");
-        let metadata = extract_dicom_data(&obj).expect("Failed to extract data from examples_palette.dcm");
+        let metadata =
+            extract_dicom_data(&obj).expect("Failed to extract data from examples_palette.dcm");
 
         // Verify palette color metadata
         assert_eq!(metadata.bits_allocated, 8);
         assert_eq!(metadata.bits_stored, 8);
-        assert_eq!(metadata.photometric_interpretation, PhotometricInterpretation::Palette);
+        assert_eq!(
+            metadata.photometric_interpretation,
+            PhotometricInterpretation::Palette
+        );
         assert_eq!(metadata.samples_per_pixel, 1);
 
         // Pixel data should be present (raw bytes, since we use fallback for palette)
@@ -530,21 +571,29 @@ mod tests {
         let result = convert_to_image(&metadata);
         assert!(result.is_err(), "Palette image conversion should fail");
         let err = result.unwrap_err();
-        assert!(err.to_string().contains("Unsupported photometric interpretation"),
-                "Expected 'Unsupported photometric interpretation' error, got: {}", err);
+        assert!(
+            err.to_string()
+                .contains("Unsupported photometric interpretation"),
+            "Expected 'Unsupported photometric interpretation' error, got: {err}"
+        );
     }
 
     #[test]
     fn test_ycbcr_color_metadata() {
         // YCbCr color space (YBR_FULL_422)
         let file_path = Path::new(".test-files/SC_ybr_full_422_uncompressed.dcm");
-        let obj = open_dicom_file(file_path).expect("Failed to open SC_ybr_full_422_uncompressed.dcm");
-        let metadata = extract_dicom_data(&obj).expect("Failed to extract data from SC_ybr_full_422_uncompressed.dcm");
+        let obj =
+            open_dicom_file(file_path).expect("Failed to open SC_ybr_full_422_uncompressed.dcm");
+        let metadata = extract_dicom_data(&obj)
+            .expect("Failed to extract data from SC_ybr_full_422_uncompressed.dcm");
 
         // Verify YCbCr metadata
         assert_eq!(metadata.bits_allocated, 8);
         assert_eq!(metadata.bits_stored, 8);
-        assert_eq!(metadata.photometric_interpretation, PhotometricInterpretation::YbrFull422);
+        assert_eq!(
+            metadata.photometric_interpretation,
+            PhotometricInterpretation::YbrFull422
+        );
         assert_eq!(metadata.samples_per_pixel, 3);
 
         // Pixel data should be present
@@ -588,13 +637,18 @@ mod tests {
 
         // Expect failure due to RLE + 32-bit limitation
         let result = extract_dicom_data(&obj);
-        assert!(result.is_err(), "32-bit RLE should fail until dicom crate adds support");
+        assert!(
+            result.is_err(),
+            "32-bit RLE should fail until dicom crate adds support"
+        );
 
         // Verify the error message is informative
         let err = result.unwrap_err();
         let err_msg = format!("{err}");
-        assert!(err_msg.contains("pixel data") || err_msg.contains("PixelSequence"),
-            "Error should mention pixel data issue, got: {}", err_msg);
+        assert!(
+            err_msg.contains("pixel data") || err_msg.contains("PixelSequence"),
+            "Error should mention pixel data issue, got: {err_msg}"
+        );
     }
 
     #[test]
@@ -607,13 +661,18 @@ mod tests {
 
         // Expect failure due to RLE + 32-bit limitation
         let result = extract_dicom_data(&obj);
-        assert!(result.is_err(), "32-bit RLE should fail until dicom crate adds support");
+        assert!(
+            result.is_err(),
+            "32-bit RLE should fail until dicom crate adds support"
+        );
 
         // Verify the error message is informative
         let err = result.unwrap_err();
         let err_msg = format!("{err}");
-        assert!(err_msg.contains("pixel data") || err_msg.contains("PixelSequence"),
-            "Error should mention pixel data issue, got: {}", err_msg);
+        assert!(
+            err_msg.contains("pixel data") || err_msg.contains("PixelSequence"),
+            "Error should mention pixel data issue, got: {err_msg}"
+        );
     }
 
     #[test]
@@ -622,12 +681,16 @@ mod tests {
         // 30 frames, YBR_FULL_422, JPEG Baseline compression
         let file_path = Path::new(".test-files/examples_ybr_color.dcm");
         let obj = open_dicom_file(file_path).expect("Failed to open examples_ybr_color.dcm");
-        let metadata = extract_dicom_data(&obj).expect("Failed to extract data from examples_ybr_color.dcm");
+        let metadata =
+            extract_dicom_data(&obj).expect("Failed to extract data from examples_ybr_color.dcm");
 
         // Verify metadata
         assert_eq!(metadata.bits_allocated, 8);
         assert_eq!(metadata.bits_stored, 8);
-        assert_eq!(metadata.photometric_interpretation, PhotometricInterpretation::YbrFull422);
+        assert_eq!(
+            metadata.photometric_interpretation,
+            PhotometricInterpretation::YbrFull422
+        );
         assert_eq!(metadata.samples_per_pixel, 3);
         assert_eq!(metadata.number_of_frames, 30);
 
@@ -637,7 +700,9 @@ mod tests {
         assert_eq!(image.height(), u32::from(metadata.rows()));
 
         // Verify pixel values - check 10 specific pixels to catch decoding regressions
-        let rgb = image.as_rgb8().expect("Should be RGB image after YCbCr conversion");
+        let rgb = image
+            .as_rgb8()
+            .expect("Should be RGB image after YCbCr conversion");
         let width = rgb.width();
         let height = rgb.height();
 
@@ -664,7 +729,8 @@ mod tests {
         // 64x64, 16-bit grayscale, MONOCHROME2
         let file_path = Path::new(".test-files/MR_small_jp2klossless.dcm");
         let obj = open_dicom_file(file_path).expect("Failed to open MR_small_jp2klossless.dcm");
-        let metadata = extract_dicom_data(&obj).expect("Failed to extract data from MR_small_jp2klossless.dcm");
+        let metadata = extract_dicom_data(&obj)
+            .expect("Failed to extract data from MR_small_jp2klossless.dcm");
 
         // Image dimensions
         assert_eq!(metadata.rows(), 64);
@@ -675,7 +741,10 @@ mod tests {
         assert_eq!(metadata.rescale_intercept(), 0.0);
 
         // Photometric interpretation
-        assert_eq!(metadata.photometric_interpretation, PhotometricInterpretation::Monochrome2);
+        assert_eq!(
+            metadata.photometric_interpretation,
+            PhotometricInterpretation::Monochrome2
+        );
         assert_eq!(metadata.samples_per_pixel, 1);
 
         // Bit depth
@@ -694,7 +763,9 @@ mod tests {
         assert_eq!(image.height(), u32::from(metadata.rows()));
 
         // Verify RGB image was created
-        let rgb = image.as_rgb8().expect("Should be RGB image after grayscale conversion");
+        let rgb = image
+            .as_rgb8()
+            .expect("Should be RGB image after grayscale conversion");
         let width = rgb.width();
         let height = rgb.height();
 
@@ -715,8 +786,8 @@ mod tests {
 
         for (x, y) in sample_coords {
             let pixel = rgb.get_pixel(x, y);
-            assert_eq!(pixel[0], pixel[1], "Grayscale should have R=G at ({},{})", x, y);
-            assert_eq!(pixel[1], pixel[2], "Grayscale should have G=B at ({},{})", x, y);
+            assert_eq!(pixel[0], pixel[1], "Grayscale should have R=G at ({x},{y})");
+            assert_eq!(pixel[1], pixel[2], "Grayscale should have G=B at ({x},{y})");
         }
 
         // Sample 10 specific pixel values to catch decoding regressions
@@ -750,13 +821,26 @@ mod tests {
 
         // Transfer syntax should be JPEG2000 Lossless
         // Transfer syntax checks below
-        assert!(metadata.transfer_syntax.uid.contains("1.2.840.10008.1.2.4.90"),
-            "Transfer syntax UID should be JPEG2000 Lossless, got: {}", metadata.transfer_syntax.uid);
-        assert!(metadata.transfer_syntax.name.contains("JPEG 2000") || metadata.transfer_syntax.name.contains("JPEG2000"),
-            "Transfer syntax name should mention JPEG 2000, got: {}", metadata.transfer_syntax.name);
+        assert!(
+            metadata
+                .transfer_syntax
+                .uid
+                .contains("1.2.840.10008.1.2.4.90"),
+            "Transfer syntax UID should be JPEG2000 Lossless, got: {}",
+            metadata.transfer_syntax.uid
+        );
+        assert!(
+            metadata.transfer_syntax.name.contains("JPEG 2000")
+                || metadata.transfer_syntax.name.contains("JPEG2000"),
+            "Transfer syntax name should mention JPEG 2000, got: {}",
+            metadata.transfer_syntax.name
+        );
 
         // Display trait
-        assert_eq!(metadata.photometric_interpretation.to_string(), "MONOCHROME2");
+        assert_eq!(
+            metadata.photometric_interpretation.to_string(),
+            "MONOCHROME2"
+        );
     }
 
     #[test]
@@ -776,7 +860,10 @@ mod tests {
         assert_eq!(metadata.rescale_intercept(), 0.0);
 
         // Photometric interpretation
-        assert_eq!(metadata.photometric_interpretation, PhotometricInterpretation::Monochrome2);
+        assert_eq!(
+            metadata.photometric_interpretation,
+            PhotometricInterpretation::Monochrome2
+        );
         assert_eq!(metadata.samples_per_pixel, 1);
 
         // Bit depth
@@ -795,7 +882,9 @@ mod tests {
         assert_eq!(image.height(), u32::from(metadata.rows()));
 
         // Verify RGB image was created
-        let rgb = image.as_rgb8().expect("Should be RGB image after grayscale conversion");
+        let rgb = image
+            .as_rgb8()
+            .expect("Should be RGB image after grayscale conversion");
         let width = rgb.width();
         let height = rgb.height();
 
@@ -816,8 +905,8 @@ mod tests {
 
         for (x, y) in sample_coords {
             let pixel = rgb.get_pixel(x, y);
-            assert_eq!(pixel[0], pixel[1], "Grayscale should have R=G at ({},{})", x, y);
-            assert_eq!(pixel[1], pixel[2], "Grayscale should have G=B at ({},{})", x, y);
+            assert_eq!(pixel[0], pixel[1], "Grayscale should have R=G at ({x},{y})");
+            assert_eq!(pixel[1], pixel[2], "Grayscale should have G=B at ({x},{y})");
         }
 
         // Sample 10 specific pixel values to catch decoding regressions
@@ -851,20 +940,33 @@ mod tests {
 
         // Transfer syntax should be JPEG2000
         // Transfer syntax checks below
-        assert!(metadata.transfer_syntax.uid.contains("1.2.840.10008.1.2.4.91"),
-            "Transfer syntax UID should be JPEG2000, got: {}", metadata.transfer_syntax.uid);
-        assert!(metadata.transfer_syntax.name.contains("JPEG 2000") || metadata.transfer_syntax.name.contains("JPEG2000"),
-            "Transfer syntax name should mention JPEG 2000, got: {}", metadata.transfer_syntax.name);
+        assert!(
+            metadata
+                .transfer_syntax
+                .uid
+                .contains("1.2.840.10008.1.2.4.91"),
+            "Transfer syntax UID should be JPEG2000, got: {}",
+            metadata.transfer_syntax.uid
+        );
+        assert!(
+            metadata.transfer_syntax.name.contains("JPEG 2000")
+                || metadata.transfer_syntax.name.contains("JPEG2000"),
+            "Transfer syntax name should mention JPEG 2000, got: {}",
+            metadata.transfer_syntax.name
+        );
 
         // Display trait
-        assert_eq!(metadata.photometric_interpretation.to_string(), "MONOCHROME2");
+        assert_eq!(
+            metadata.photometric_interpretation.to_string(),
+            "MONOCHROME2"
+        );
     }
 
     #[test]
     fn test_ybr_full_to_dynamic_image() {
         // Test that dicom-pixeldata's to_dynamic_image() works for YBR_FULL (non-422) files
         // This is a regression test for the frame indexing bug we discovered in YBR_FULL_422
-        use dicom::pixeldata::{PixelDecoder, ConvertOptions};
+        use dicom::pixeldata::{ConvertOptions, PixelDecoder};
 
         let ybr_full_files = [
             ".test-files/SC_rgb_dcmtk_+eb+cy+n1.dcm",
@@ -873,29 +975,24 @@ mod tests {
         ];
 
         for file_path in ybr_full_files {
-            eprintln!("Testing to_dynamic_image() on: {}", file_path);
+            eprintln!("Testing to_dynamic_image() on: {file_path}");
             let path = Path::new(file_path);
 
-            // Skip test if file doesn't exist (pydicom data may not be available)
-            if !path.exists() {
-                eprintln!("  SKIP: File not found");
-                continue;
-            }
-
-            let obj = open_dicom_file(path)
-                .unwrap_or_else(|e| panic!("Failed to open {}: {}", file_path, e));
+            let obj =
+                open_dicom_file(path).unwrap_or_else(|e| panic!("Failed to open {file_path}: {e}"));
 
             // Decode pixel data
-            let decoded_pixel_data = obj.decode_pixel_data()
-                .unwrap_or_else(|e| panic!("Failed to decode pixel data for {}: {}", file_path, e));
+            let decoded_pixel_data = obj
+                .decode_pixel_data()
+                .unwrap_or_else(|e| panic!("Failed to decode pixel data for {file_path}: {e}"));
 
             // Check number of frames
             let num_frames = decoded_pixel_data.number_of_frames();
-            eprintln!("  Frames: {}", num_frames);
+            eprintln!("  Frames: {num_frames}");
 
             // Try to convert to dynamic image
-            let options = ConvertOptions::new()
-                .with_modality_lut(dicom::pixeldata::ModalityLutOption::None);
+            let options =
+                ConvertOptions::new().with_modality_lut(dicom::pixeldata::ModalityLutOption::None);
 
             let result = decoded_pixel_data.to_dynamic_image_with_options(0, &options);
 
@@ -906,11 +1003,8 @@ mod tests {
                     let _rgb = dynamic_image.to_rgb8();
                 }
                 Err(e) => {
-                    eprintln!("  ERROR: to_dynamic_image() failed: {}", e);
-                    panic!(
-                        "to_dynamic_image() failed for {} (frames: {}): {}",
-                        file_path, num_frames, e
-                    );
+                    eprintln!("  ERROR: to_dynamic_image() failed: {e}");
+                    panic!("to_dynamic_image() failed for {file_path} (frames: {num_frames}): {e}");
                 }
             }
         }
@@ -921,47 +1015,52 @@ mod tests {
         // Test that documents the frame indexing bug in dicom-pixeldata
         // For YBR_FULL_422 files, to_dynamic_image() incorrectly reports "frame #0 is out of range"
         // even when number_of_frames() returns 1
-        use dicom::pixeldata::{PixelDecoder, ConvertOptions};
+        use dicom::pixeldata::{ConvertOptions, PixelDecoder};
 
         let file_path = ".test-files/SC_ybr_full_422_uncompressed.dcm";
         let path = Path::new(file_path);
 
         // Skip test if file doesn't exist
         if !path.exists() {
-            eprintln!("SKIP: {} not found", file_path);
+            eprintln!("SKIP: {file_path} not found");
             return;
         }
 
         let obj = open_dicom_file(path).expect("Failed to open file");
 
         // Decode pixel data
-        let decoded_pixel_data = obj.decode_pixel_data()
+        let decoded_pixel_data = obj
+            .decode_pixel_data()
             .expect("Failed to decode pixel data");
 
         // Check number of frames
         let num_frames = decoded_pixel_data.number_of_frames();
-        eprintln!("YBR_FULL_422 file has {} frames", num_frames);
+        eprintln!("YBR_FULL_422 file has {num_frames} frames");
         assert_eq!(num_frames, 1, "Expected 1 frame");
 
         // Try to convert to dynamic image - this should fail due to the bug
-        let options = ConvertOptions::new()
-            .with_modality_lut(dicom::pixeldata::ModalityLutOption::None);
+        let options =
+            ConvertOptions::new().with_modality_lut(dicom::pixeldata::ModalityLutOption::None);
 
         let result = decoded_pixel_data.to_dynamic_image_with_options(0, &options);
 
         // This test documents the known bug - we expect it to fail
-        assert!(result.is_err(),
+        assert!(
+            result.is_err(),
             "Expected to_dynamic_image() to fail for YBR_FULL_422 due to frame indexing bug, \
-            but it succeeded. This might mean the bug was fixed in dicom-pixeldata!");
+            but it succeeded. This might mean the bug was fixed in dicom-pixeldata!"
+        );
 
         let err = result.unwrap_err();
-        let err_msg = format!("{}", err);
-        eprintln!("Expected error (bug confirmed): {}", err_msg);
+        let err_msg = format!("{err}");
+        eprintln!("Expected error (bug confirmed): {err_msg}");
 
         // The error should mention "out of range" or "frame"
-        assert!(err_msg.to_lowercase().contains("out of range") ||
-                err_msg.to_lowercase().contains("frame"),
-            "Expected 'out of range' error, got: {}", err_msg);
+        assert!(
+            err_msg.to_lowercase().contains("out of range")
+                || err_msg.to_lowercase().contains("frame"),
+            "Expected 'out of range' error, got: {err_msg}"
+        );
     }
 
     /// Helper to verify grayscale pixel values at specific coordinates
@@ -969,15 +1068,22 @@ mod tests {
     /// # Arguments
     /// * `rgb` - The RGB image buffer (grayscale images are converted to RGB format)
     /// * `test_name` - Name of the test (for debug output)
-    /// * `expected_pixels` - Array of (coordinates, expected_value) pairs
-    fn assert_grayscale_pixels(rgb: &image::RgbImage, test_name: &str, expected_pixels: &GrayscalePixelSamples) {
+    /// * `expected_pixels` - Array of (coordinates, `expected_value`) pairs
+    fn assert_grayscale_pixels(
+        rgb: &image::RgbImage,
+        test_name: &str,
+        expected_pixels: &GrayscalePixelSamples,
+    ) {
         // Collect actual values
         let actual_pixels: Vec<_> = expected_pixels
             .iter()
             .map(|((x, y), _)| (*x, *y, rgb.get_pixel(*x, *y)[0]))
             .collect();
 
-        let expected_values: Vec<_> = expected_pixels.iter().map(|((x, y), v)| (*x, *y, *v)).collect();
+        let expected_values: Vec<_> = expected_pixels
+            .iter()
+            .map(|((x, y), v)| (*x, *y, *v))
+            .collect();
 
         // Print debug output
         println!("\n{test_name} pixel values:");
@@ -998,8 +1104,12 @@ mod tests {
     /// # Arguments
     /// * `rgb` - The RGB image buffer
     /// * `test_name` - Name of the test (for debug output)
-    /// * `expected_pixels` - Array of (coordinates, expected_rgb) pairs
-    fn assert_rgb_pixels(rgb: &image::RgbImage, test_name: &str, expected_pixels: &RgbPixelSamples) {
+    /// * `expected_pixels` - Array of (coordinates, `expected_rgb`) pairs
+    fn assert_rgb_pixels(
+        rgb: &image::RgbImage,
+        test_name: &str,
+        expected_pixels: &RgbPixelSamples,
+    ) {
         // Collect actual values (all 3 channels)
         let actual_pixels: Vec<_> = expected_pixels
             .iter()
@@ -1016,7 +1126,10 @@ mod tests {
             })
             .collect();
 
-        let expected_values: Vec<_> = expected_pixels.iter().map(|((x, y), v)| (*x, *y, *v)).collect();
+        let expected_values: Vec<_> = expected_pixels
+            .iter()
+            .map(|((x, y), v)| (*x, *y, *v))
+            .collect();
 
         // Print debug output
         println!("\n{test_name} pixel values:");

@@ -1,7 +1,12 @@
+use crate::dicom::DicomMetadata;
 use anyhow::{Context, Result};
 use image::{DynamicImage, ImageBuffer, RgbImage};
-use crate::dicom::DicomMetadata;
 
+/// Convert YCbCr DICOM pixel data to a `DynamicImage`
+///
+/// # Errors
+///
+/// Returns an error if pixel data extraction or YCbCr conversion fails
 pub fn convert_ycbcr(metadata: &DicomMetadata) -> Result<DynamicImage> {
     let pixel_data = extract_ycbcr_pixels(metadata)?;
 
@@ -13,7 +18,13 @@ pub fn convert_ycbcr(metadata: &DicomMetadata) -> Result<DynamicImage> {
             let cr = f32::from(ycbcr[2]);
 
             let r = y.mul_add(1.0_f32, (cr - 128.0_f32).mul_add(1.402_f32, 0.0_f32));
-            let g = y.mul_add(1.0_f32, (cb - 128.0_f32).mul_add(-0.344_136_f32, (cr - 128.0_f32).mul_add(-0.714_136_f32, 0.0_f32)));
+            let g = y.mul_add(
+                1.0_f32,
+                (cb - 128.0_f32).mul_add(
+                    -0.344_136_f32,
+                    (cr - 128.0_f32).mul_add(-0.714_136_f32, 0.0_f32),
+                ),
+            );
             let b = y.mul_add(1.0_f32, (cb - 128.0_f32).mul_add(1.772_f32, 0.0_f32));
 
             [
@@ -53,13 +64,13 @@ fn extract_ycbcr_pixels(metadata: &DicomMetadata) -> Result<Vec<u8>> {
         let expected_422_size = pixel_count * 2;
 
         let total_frames = data.len() / expected_full_size;
-        let is_422 = if data.len().is_multiple_of(expected_full_size) {
-            data.len() == expected_422_size * total_frames
-        } else {
-            data.len() == expected_422_size * total_frames
-        };
+        let is_422 = data.len() == expected_422_size * total_frames;
 
-        let single_frame_size = if is_422 { expected_422_size } else { expected_full_size };
+        let single_frame_size = if is_422 {
+            expected_422_size
+        } else {
+            expected_full_size
+        };
 
         if data.len() > single_frame_size {
             &data[..single_frame_size]
@@ -75,7 +86,7 @@ fn extract_ycbcr_pixels(metadata: &DicomMetadata) -> Result<Vec<u8>> {
     match metadata.planar_configuration {
         None | Some(0) => {
             if has_422_subsampling {
-                upsample_ycbcr_422_interleaved(pixel_data, rows, cols)
+                Ok(upsample_ycbcr_422_interleaved(pixel_data, rows, cols))
             } else {
                 if pixel_data.len() != pixel_count * 3 {
                     anyhow::bail!(
@@ -89,18 +100,21 @@ fn extract_ycbcr_pixels(metadata: &DicomMetadata) -> Result<Vec<u8>> {
         }
         Some(1) => {
             if has_422_subsampling {
-                upsample_ycbcr_422_planar(pixel_data, rows, cols, pixel_count)
+                Ok(upsample_ycbcr_422_planar(
+                    pixel_data,
+                    rows,
+                    cols,
+                    pixel_count,
+                ))
             } else {
                 interleave_ycbcr_planar(pixel_data, pixel_count)
             }
         }
-        Some(other) => anyhow::bail!(
-            "Unsupported planar configuration for YCbCr: {other}"
-        ),
+        Some(other) => anyhow::bail!("Unsupported planar configuration for YCbCr: {other}"),
     }
 }
 
-fn upsample_ycbcr_422_interleaved(pixel_data: &[u8], rows: usize, cols: usize) -> Result<Vec<u8>> {
+fn upsample_ycbcr_422_interleaved(pixel_data: &[u8], rows: usize, cols: usize) -> Vec<u8> {
     let pixel_count = rows * cols;
     let mut output = vec![0u8; pixel_count * 3];
 
@@ -121,14 +135,19 @@ fn upsample_ycbcr_422_interleaved(pixel_data: &[u8], rows: usize, cols: usize) -
         }
     }
 
-    Ok(output)
+    output
 }
 
-fn upsample_ycbcr_422_planar(pixel_data: &[u8], rows: usize, cols: usize, pixel_count: usize) -> Result<Vec<u8>> {
+fn upsample_ycbcr_422_planar(
+    pixel_data: &[u8],
+    rows: usize,
+    cols: usize,
+    pixel_count: usize,
+) -> Vec<u8> {
     let y_plane = &pixel_data[..pixel_count];
     let chroma_size = pixel_count / 2;
     let cb_plane = &pixel_data[pixel_count..pixel_count + chroma_size];
-    let cr_plane = &pixel_data[pixel_count + chroma_size..pixel_count + chroma_size * 2];
+    let cr_chroma_plane = &pixel_data[pixel_count + chroma_size..pixel_count + chroma_size * 2];
 
     let mut output = vec![0u8; pixel_count * 3];
 
@@ -139,11 +158,11 @@ fn upsample_ycbcr_422_planar(pixel_data: &[u8], rows: usize, cols: usize, pixel_
 
             let chroma_x = x / 2;
             output[out_idx + 1] = cb_plane[y * (cols / 2) + chroma_x];
-            output[out_idx + 2] = cr_plane[y * (cols / 2) + chroma_x];
+            output[out_idx + 2] = cr_chroma_plane[y * (cols / 2) + chroma_x];
         }
     }
 
-    Ok(output)
+    output
 }
 
 fn interleave_ycbcr_planar(pixel_data: &[u8], pixel_count: usize) -> Result<Vec<u8>> {

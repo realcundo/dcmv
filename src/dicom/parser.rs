@@ -1,12 +1,8 @@
+use crate::types::{Dimensions, PixelAspectRatio, RescaleParams, SOPClass, TransferSyntax};
 use anyhow::{Context, Result};
 use dicom::core::dictionary::UidDictionary;
 use dicom::encoding::TransferSyntaxIndex;
-use dicom::object::{
-    FileDicomObject,
-    InMemDicomObject,
-    StandardDataDictionary
-};
-use crate::types::{Dimensions, RescaleParams, PixelAspectRatio, TransferSyntax, SOPClass};
+use dicom::object::{FileDicomObject, InMemDicomObject, StandardDataDictionary};
 
 pub fn extract_dimensions(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
@@ -83,7 +79,7 @@ pub fn extract_samples_per_pixel(
 
 pub fn extract_bit_depth(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
-) -> Result<(u16, u16)> {
+) -> (u16, u16) {
     use dicom::dictionary_std::tags;
 
     let bits_allocated = obj
@@ -96,7 +92,7 @@ pub fn extract_bit_depth(
         .and_then(|e| e.to_int::<u16>().ok())
         .unwrap_or(bits_allocated);
 
-    Ok((bits_allocated, bits_stored))
+    (bits_allocated, bits_stored)
 }
 
 #[inline]
@@ -162,7 +158,12 @@ pub fn extract_patient_metadata(
 
 pub fn extract_study_metadata(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
-) -> (Option<String>, Option<String>, Option<String>, Option<String>) {
+) -> (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+) {
     use dicom::dictionary_std::tags;
 
     let accession_number = obj

@@ -1,6 +1,6 @@
-use crate::types::*;
 use super::photometric::PhotometricInterpretation;
 use super::pixel_data::DecodedPixelData;
+use crate::types::{Dimensions, PixelAspectRatio, RescaleParams, SOPClass, TransferSyntax};
 
 #[derive(Debug, Clone)]
 pub struct DicomMetadata {
@@ -68,7 +68,9 @@ impl DicomMetadata {
     #[must_use]
     pub fn pixel_data(&self) -> &[u8] {
         match &self.pixel_data_format {
-            DecodedPixelData::YcbCr(data) | DecodedPixelData::Rgb(data) | DecodedPixelData::Native(data) => data,
+            DecodedPixelData::YcbCr(data)
+            | DecodedPixelData::Rgb(data)
+            | DecodedPixelData::Native(data) => data,
         }
     }
 

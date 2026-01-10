@@ -1,16 +1,22 @@
+use super::normalization::{find_min_max, normalize_u32_to_u8};
+use crate::dicom::DicomMetadata;
 use anyhow::{Context, Result};
 use image::{DynamicImage, ImageBuffer, RgbImage};
-use crate::dicom::DicomMetadata;
-use super::normalization::{find_min_max, normalize_u32_to_u8};
 
+/// Convert RGB DICOM pixel data to a `DynamicImage`
+///
+/// # Errors
+///
+/// Returns an error if pixel data extraction or image buffer creation fails
 pub fn convert_rgb(metadata: &DicomMetadata) -> Result<DynamicImage> {
     let pixel_data = extract_rgb_pixels(metadata)?;
 
     let rgb_image: RgbImage = ImageBuffer::from_raw(
         u32::from(metadata.cols()),
         u32::from(metadata.rows()),
-        pixel_data
-    ).context("Failed to create RGB image buffer")?;
+        pixel_data,
+    )
+    .context("Failed to create RGB image buffer")?;
 
     Ok(DynamicImage::ImageRgb8(rgb_image))
 }
@@ -103,18 +109,28 @@ fn extract_rgb_32bit(metadata: &DicomMetadata) -> Result<Vec<u8>> {
                 b_values.push(u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
             }
         }
-        Some(other) => anyhow::bail!(
-            "Unsupported planar configuration for 32-bit RGB: {other}"
-        ),
+        Some(other) => anyhow::bail!("Unsupported planar configuration for 32-bit RGB: {other}"),
     }
 
     let (r_min, r_max) = find_min_max(&r_values);
     let (g_min, g_max) = find_min_max(&g_values);
     let (b_min, b_max) = find_min_max(&b_values);
 
-    let r_range = if r_max > r_min { r_max - r_min } else { 1.0_f32 };
-    let g_range = if g_max > g_min { g_max - g_min } else { 1.0_f32 };
-    let b_range = if b_max > b_min { b_max - b_min } else { 1.0_f32 };
+    let r_range = if r_max > r_min {
+        r_max - r_min
+    } else {
+        1.0_f32
+    };
+    let g_range = if g_max > g_min {
+        g_max - g_min
+    } else {
+        1.0_f32
+    };
+    let b_range = if b_max > b_min {
+        b_max - b_min
+    } else {
+        1.0_f32
+    };
 
     let mut result = Vec::with_capacity(pixel_count * 3);
     for i in 0..pixel_count {

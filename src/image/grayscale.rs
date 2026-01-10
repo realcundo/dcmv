@@ -1,16 +1,22 @@
+use super::normalization::find_min_max;
+use crate::dicom::DicomMetadata;
 use anyhow::{Context, Result};
 use image::{DynamicImage, ImageBuffer, RgbImage};
-use crate::dicom::DicomMetadata;
-use super::normalization::find_min_max;
 
 // f32: better SIMD (8 floats/AVX2 reg vs 4)
+/// Convert grayscale DICOM pixel data to a `DynamicImage`
+///
+/// # Errors
+///
+/// Returns an error if pixel data extraction or conversion fails
 pub fn convert_grayscale(metadata: &DicomMetadata) -> Result<DynamicImage> {
     let pixel_data = extract_grayscale_pixels(metadata)?;
 
     let slope = metadata.rescale_slope() as f32;
     let intercept = metadata.rescale_intercept() as f32;
 
-    let (min_val, max_val) = pixel_data.iter()
+    let (min_val, max_val) = pixel_data
+        .iter()
         .map(|&pixel| f32::from(pixel).mul_add(slope, intercept))
         .fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), val| {
             (min.min(val), max.max(val))
@@ -24,26 +30,30 @@ pub fn convert_grayscale(metadata: &DicomMetadata) -> Result<DynamicImage> {
 
     let should_invert = metadata.photometric_interpretation.should_invert();
 
-    let rgb_pixels: Vec<u8> = pixel_data.iter().flat_map(|&pixel| {
-        let rescaled = f32::from(pixel).mul_add(slope, intercept);
+    let rgb_pixels: Vec<u8> = pixel_data
+        .iter()
+        .flat_map(|&pixel| {
+            let rescaled = f32::from(pixel).mul_add(slope, intercept);
 
-        let normalized = (rescaled - min_val) / range;
-        let gray = (normalized * 255.0_f32) as u8;
+            let normalized = (rescaled - min_val) / range;
+            let gray = (normalized * 255.0_f32) as u8;
 
-        let gray = if should_invert {
-            255u8.saturating_sub(gray)
-        } else {
-            gray
-        };
+            let gray = if should_invert {
+                255u8.saturating_sub(gray)
+            } else {
+                gray
+            };
 
-        [gray, gray, gray]
-    }).collect();
+            [gray, gray, gray]
+        })
+        .collect();
 
     let rgb_image: RgbImage = ImageBuffer::from_raw(
         u32::from(metadata.cols()),
         u32::from(metadata.rows()),
-        rgb_pixels
-    ).context("Failed to create RGB image buffer")?;
+        rgb_pixels,
+    )
+    .context("Failed to create RGB image buffer")?;
 
     Ok(DynamicImage::ImageRgb8(rgb_image))
 }
@@ -52,9 +62,7 @@ fn extract_grayscale_pixels(metadata: &DicomMetadata) -> Result<Vec<u16>> {
     let pixel_data = metadata.pixel_data();
 
     match metadata.bits_allocated {
-        8 => {
-            Ok(pixel_data.iter().map(|&b| u16::from(b)).collect())
-        }
+        8 => Ok(pixel_data.iter().map(|&b| u16::from(b)).collect()),
         16 => {
             if !pixel_data.len().is_multiple_of(2) {
                 anyhow::bail!("Invalid 16-bit pixel data length");

@@ -2,8 +2,8 @@ use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use dcmv::cli::Args;
 use dcmv::dicom;
-use dcmv::image;
 use dcmv::display;
+use dcmv::image;
 
 fn main() {
     let args = Args::parse();

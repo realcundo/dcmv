@@ -1,5 +1,5 @@
-use anyhow::{bail, Result};
 use crate::dicom::PhotometricInterpretation;
+use anyhow::{Result, bail};
 
 #[inline]
 pub fn validate_photometric_samples(
@@ -14,9 +14,7 @@ pub fn validate_photometric_samples(
 
     if !is_valid {
         bail!(
-            "Inconsistent photometric interpretation {:?} with samples per pixel {}",
-            photometric_interpretation,
-            samples_per_pixel
+            "Inconsistent photometric interpretation {photometric_interpretation:?} with samples per pixel {samples_per_pixel}"
         );
     }
 
@@ -41,9 +39,7 @@ pub fn validate_planar_configuration(
 #[inline]
 pub fn validate_bits_allocated(bits_allocated: u16) -> Result<()> {
     if !matches!(bits_allocated, 8 | 16 | 32) {
-        bail!(
-            "Unsupported bits allocated: {bits_allocated} (expected 8, 16, or 32)"
-        );
+        bail!("Unsupported bits allocated: {bits_allocated} (expected 8, 16, or 32)");
     }
 
     Ok(())
