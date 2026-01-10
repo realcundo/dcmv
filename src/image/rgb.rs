@@ -1,8 +1,9 @@
 //! RGB image conversion
 //!
 //! This module handles conversion of DICOM RGB pixel data to RGB images,
-//! supporting 8-bit and 32-bit color depths with planar or interleaved
-//! configurations.
+//! supporting 8-bit interleaved and 32-bit color depths.
+//! Note: 8-bit RGB with planar configuration is now handled by `to_dynamic_image()`
+//! in the pixel data extraction phase.
 
 use anyhow::{Context, Result};
 use image::{DynamicImage, ImageBuffer, RgbImage};
@@ -37,7 +38,10 @@ fn extract_rgb_pixels(metadata: &DicomMetadata) -> Result<Vec<u8>> {
     }
 }
 
-/// Extract 8-bit RGB pixel data with planar configuration handling
+/// Extract 8-bit RGB pixel data
+///
+/// Note: 8-bit RGB with planar configuration is now handled by `to_dynamic_image()`
+/// in the pixel data extraction phase, so this function only handles interleaved RGB.
 fn extract_rgb_8bit(metadata: &DicomMetadata) -> Result<Vec<u8>> {
     let bytes_per_sample = (metadata.bits_allocated / 8) as usize;
     let pixels_per_frame = metadata.rows() as usize * metadata.cols() as usize;
@@ -60,27 +64,9 @@ fn extract_rgb_8bit(metadata: &DicomMetadata) -> Result<Vec<u8>> {
         );
     }
 
-    match metadata.planar_configuration {
-        None | Some(0) => {
-            // Planar Configuration 0: interleaved RGBRGB...
-            Ok(pixel_data.to_vec())
-        }
-        Some(1) => {
-            // Planar Configuration 1: planar RRR...GGG...BBB...
-            let mut interleaved = vec![0u8; expected_size];
-
-            for (i, pixel) in interleaved.chunks_exact_mut(3).enumerate() {
-                pixel[0] = pixel_data[i];
-                pixel[1] = pixel_data[pixels_per_frame + i];
-                pixel[2] = pixel_data[2 * pixels_per_frame + i];
-            }
-
-            Ok(interleaved)
-        }
-        Some(other) => anyhow::bail!(
-            "Unsupported planar configuration: {other}"
-        ),
-    }
+    // Only interleaved RGB (planar configuration 0 or None)
+    // Planar configuration 1 is handled by to_dynamic_image()
+    Ok(pixel_data.to_vec())
 }
 
 /// Extract 32-bit RGB pixel data and normalize to 8-bit

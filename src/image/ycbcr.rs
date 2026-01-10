@@ -1,17 +1,17 @@
 //! YCbCr image conversion
 //!
-//! This module handles conversion of DICOM YCbCr pixel data to RGB images,
-//! supporting full-resolution (YBR_FULL) and 4:2:2 subsampled (YBR_FULL_422)
-//! formats with both interleaved and planar configurations.
+//! This module handles conversion of DICOM YBR_FULL_422 pixel data to RGB images.
+//! Note: YBR_FULL (non-subsampled) is now handled by `to_dynamic_image()` in
+//! the pixel data extraction phase, so this module only handles YBR_FULL_422.
 
 use anyhow::{Context, Result};
 use image::{DynamicImage, ImageBuffer, RgbImage};
 use crate::dicom::DicomMetadata;
 
-/// Convert YCbCr DICOM data to RGB image
+/// Convert YBR_FULL_422 DICOM data to RGB image
 ///
 /// Uses ITU-R BT.601 color space conversion for full-range YCbCr (YBR_FULL).
-/// YBR_FULL_422 is handled the same way since pixel data is already decoded.
+/// YBR_FULL_422 requires upsampling of chroma channels from 4:2:2 subsampling.
 pub fn convert_ycbcr(metadata: &DicomMetadata) -> Result<DynamicImage> {
     let pixel_data = extract_ycbcr_pixels(metadata)?;
 

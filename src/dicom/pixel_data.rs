@@ -29,13 +29,16 @@ pub enum DecodedPixelData {
 /// Extract pixel data from DICOM object, handling compression and endianness
 ///
 /// Returns a `DecodedPixelData` enum indicating the format of the pixel data.
-/// For JPEG-compressed YCbCr images, the decoder already converts to RGB,
-/// so we return `Rgb` to avoid double-conversion.
+/// Uses `to_dynamic_image()` for supported formats (YBR_FULL, RGB planar, big-endian).
+/// For JPEG-compressed YCbCr images, the decoder already converts to RGB.
+/// For uncompressed YCbCr, we return `YcbCr` for manual conversion via
+/// the ITU-R BT.601 color space.
 pub fn extract_pixel_data(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
     bits_allocated: u16,
     photometric_interpretation: &str,
     transfer_syntax_uid: &str,
+    planar_configuration: Option<u16>,
 ) -> Result<DecodedPixelData> {
     // Explicit VR Big Endian UID (retired but still in use in legacy files)
     const EXPLICIT_VR_BIG_ENDIAN_UID: &str = "1.2.840.10008.1.2.2";
@@ -43,6 +46,21 @@ pub fn extract_pixel_data(
     let is_big_endian = transfer_syntax_uid == EXPLICIT_VR_BIG_ENDIAN_UID;
     let is_compressed = detect_compression(transfer_syntax_uid);
     let is_ycbcr = photometric_interpretation.contains("YBR");
+
+    // Phase 1: Use to_dynamic_image() for YBR_FULL (not YBR_FULL_422, not compressed)
+    if photometric_interpretation == "YBR_FULL" && !is_compressed {
+        return extract_via_dynamic_image(obj);
+    }
+
+    // Phase 2: Use to_dynamic_image() for 8-bit RGB with planar configuration
+    if photometric_interpretation == "RGB" && planar_configuration == Some(1) && bits_allocated == 8 && !is_compressed {
+        return extract_via_dynamic_image(obj);
+    }
+
+    // Phase 3: Use to_dynamic_image() for big-endian 16-bit RGB (not grayscale, not YCbCr)
+    if bits_allocated == 16 && is_big_endian && !is_ycbcr && photometric_interpretation == "RGB" && !is_compressed {
+        return extract_via_dynamic_image(obj);
+    }
 
     // Determine the data format based on compression and photometric interpretation
     let format = if is_compressed && is_ycbcr {
@@ -54,9 +72,7 @@ pub fn extract_pixel_data(
         DecodedPixelFormat::Native
     };
 
-    let data = if bits_allocated == 16 && is_big_endian {
-        extract_big_endian_16bit(obj)?
-    } else if !is_compressed && matches!(format, DecodedPixelFormat::YcbCr) {
+    let data = if !is_compressed && matches!(format, DecodedPixelFormat::YcbCr) {
         extract_raw_pixel_data(obj)?
     } else {
         extract_decoded_pixel_data(obj, bits_allocated)?
@@ -77,6 +93,44 @@ enum DecodedPixelFormat {
     Native,
 }
 
+/// Extract pixel data using to_dynamic_image() for supported formats
+///
+/// This function leverages dicom-pixeldata's native conversions for:
+/// - YBR_FULL → RGB color space conversion
+/// - RGB planar → RGB interleaved conversion
+/// - Big-endian → little-endian byte order conversion
+fn extract_via_dynamic_image(
+    obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
+) -> Result<DecodedPixelData> {
+    use dicom::pixeldata::{ConvertOptions, PixelDecoder};
+    use image::DynamicImage::*;
+
+    let decoded_pixel_data = obj
+        .decode_pixel_data()
+        .context("Failed to decode pixel data")?;
+
+    // Use minimal conversion options (no modality LUT)
+    let options = ConvertOptions::new()
+        .with_modality_lut(dicom::pixeldata::ModalityLutOption::None);
+
+    let dynamic_image = decoded_pixel_data
+        .to_dynamic_image_with_options(0, &options)
+        .context("Failed to convert to DynamicImage via to_dynamic_image_with_options")?;
+
+    // Extract RGB bytes from DynamicImage
+    let rgb_bytes = match dynamic_image {
+        ImageRgb8(buffer) => buffer.into_raw(),
+        _ => {
+            anyhow::bail!(
+                "Expected RGB8 image from to_dynamic_image conversion, got {:?}",
+                dynamic_image.color()
+            );
+        }
+    };
+
+    Ok(DecodedPixelData::Rgb(rgb_bytes))
+}
+
 /// Detect if transfer syntax uses compression
 #[inline]
 #[must_use]
@@ -85,34 +139,6 @@ fn detect_compression(uid: &str) -> bool {
         || uid.contains("1.2.840.10008.1.2.4.50")  // JPEG Baseline
         || uid.contains("1.2.840.10008.1.2.5")   // RLE lossless
         || uid.contains("JPEG2000")
-}
-
-/// Extract big-endian 16-bit pixel data and convert to little-endian
-fn extract_big_endian_16bit(
-    obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
-) -> Result<Vec<u8>> {
-    use dicom::dictionary_std::tags;
-
-    let pixel_data_obj = obj
-        .get(tags::PIXEL_DATA)
-        .context("Missing pixel data")?;
-
-    let raw_bytes = pixel_data_obj
-        .to_bytes()
-        .context("Failed to get raw pixel data bytes")?;
-
-    if !raw_bytes.len().is_multiple_of(2) {
-        anyhow::bail!("Invalid 16-bit pixel data length");
-    }
-
-    // Convert big-endian bytes to u16 values, store as little-endian
-    Ok(raw_bytes
-        .chunks_exact(2)
-        .flat_map(|chunk| {
-            let value = u16::from_be_bytes([chunk[0], chunk[1]]);
-            value.to_le_bytes()
-        })
-        .collect())
 }
 
 /// Extract raw pixel data (for YCbCr, Palette, 32-bit)

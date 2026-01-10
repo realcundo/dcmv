@@ -71,6 +71,7 @@ pub fn extract_dicom_data(
         bits_allocated,
         &photometric_interpretation.to_string(),
         &transfer_syntax.uid,
+        planar_configuration,
     )?;
 
     // Validate all constraints
@@ -737,5 +738,109 @@ mod tests {
 
         // Display trait
         assert_eq!(metadata.photometric_interpretation.to_string(), "MONOCHROME2");
+    }
+
+    #[test]
+    fn test_ybr_full_to_dynamic_image() {
+        // Test that dicom-pixeldata's to_dynamic_image() works for YBR_FULL (non-422) files
+        // This is a regression test for the frame indexing bug we discovered in YBR_FULL_422
+        use dicom::pixeldata::{PixelDecoder, ConvertOptions};
+
+        let ybr_full_files = [
+            ".test-files/SC_rgb_dcmtk_+eb+cy+n1.dcm",
+            ".test-files/SC_rgb_dcmtk_+eb+cy+n2.dcm",
+            ".test-files/SC_rgb_dcmtk_+eb+cy+s4.dcm",
+        ];
+
+        for file_path in ybr_full_files {
+            eprintln!("Testing to_dynamic_image() on: {}", file_path);
+            let path = Path::new(file_path);
+
+            // Skip test if file doesn't exist (pydicom data may not be available)
+            if !path.exists() {
+                eprintln!("  SKIP: File not found");
+                continue;
+            }
+
+            let obj = open_dicom_file(path)
+                .unwrap_or_else(|e| panic!("Failed to open {}: {}", file_path, e));
+
+            // Decode pixel data
+            let decoded_pixel_data = obj.decode_pixel_data()
+                .unwrap_or_else(|e| panic!("Failed to decode pixel data for {}: {}", file_path, e));
+
+            // Check number of frames
+            let num_frames = decoded_pixel_data.number_of_frames();
+            eprintln!("  Frames: {}", num_frames);
+
+            // Try to convert to dynamic image
+            let options = ConvertOptions::new()
+                .with_modality_lut(dicom::pixeldata::ModalityLutOption::None);
+
+            let result = decoded_pixel_data.to_dynamic_image_with_options(0, &options);
+
+            match result {
+                Ok(dynamic_image) => {
+                    eprintln!("  SUCCESS: to_dynamic_image() worked");
+                    // Verify we got an RGB image
+                    let _rgb = dynamic_image.to_rgb8();
+                }
+                Err(e) => {
+                    eprintln!("  ERROR: to_dynamic_image() failed: {}", e);
+                    panic!(
+                        "to_dynamic_image() failed for {} (frames: {}): {}",
+                        file_path, num_frames, e
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_ybr_full_422_to_dynamic_image_bug() {
+        // Test that documents the frame indexing bug in dicom-pixeldata
+        // For YBR_FULL_422 files, to_dynamic_image() incorrectly reports "frame #0 is out of range"
+        // even when number_of_frames() returns 1
+        use dicom::pixeldata::{PixelDecoder, ConvertOptions};
+
+        let file_path = ".test-files/SC_ybr_full_422_uncompressed.dcm";
+        let path = Path::new(file_path);
+
+        // Skip test if file doesn't exist
+        if !path.exists() {
+            eprintln!("SKIP: {} not found", file_path);
+            return;
+        }
+
+        let obj = open_dicom_file(path).expect("Failed to open file");
+
+        // Decode pixel data
+        let decoded_pixel_data = obj.decode_pixel_data()
+            .expect("Failed to decode pixel data");
+
+        // Check number of frames
+        let num_frames = decoded_pixel_data.number_of_frames();
+        eprintln!("YBR_FULL_422 file has {} frames", num_frames);
+        assert_eq!(num_frames, 1, "Expected 1 frame");
+
+        // Try to convert to dynamic image - this should fail due to the bug
+        let options = ConvertOptions::new()
+            .with_modality_lut(dicom::pixeldata::ModalityLutOption::None);
+
+        let result = decoded_pixel_data.to_dynamic_image_with_options(0, &options);
+
+        // This test documents the known bug - we expect it to fail
+        assert!(result.is_err(),
+            "Expected to_dynamic_image() to fail for YBR_FULL_422 due to frame indexing bug, \
+            but it succeeded. This might mean the bug was fixed in dicom-pixeldata!");
+
+        let err = result.unwrap_err();
+        let err_msg = format!("{}", err);
+        eprintln!("Expected error (bug confirmed): {}", err_msg);
+
+        // The error should mention "out of range" or "frame"
+        assert!(err_msg.to_lowercase().contains("out of range") ||
+                err_msg.to_lowercase().contains("frame"),
+            "Expected 'out of range' error, got: {}", err_msg);
     }
 }
