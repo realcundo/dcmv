@@ -10,7 +10,14 @@ pub enum PhotometricInterpretation {
     Rgb,
     YbrFull,
     YbrFull422,
+    // TODO: Implement Palette color support
+    // Failing files: examples_palette.dcm (2 instances)
+    // Requires reading Palette Color Lookup Table (CLUT) data and mapping pixel values through it
     Palette,
+    // TODO: Implement YBR_RCT (reversible color transform) support
+    // Failing files: GDCMJ2K_TextGBR.dcm, examples_jpeg2k.dcm
+    // YBR_RCT is used with JPEG2000 compression, needs conversion similar to YBR_FULL
+    YbrRct,
     Unknown(String),
 }
 
@@ -25,6 +32,7 @@ impl FromStr for PhotometricInterpretation {
             "YBR_FULL" => Self::YbrFull,
             "YBR_FULL_422" => Self::YbrFull422,
             "PALETTE COLOR" => Self::Palette,
+            "YBR_RCT" => Self::YbrRct,
             other => Self::Unknown(other.to_string()),
         })
     }
@@ -46,7 +54,7 @@ impl PhotometricInterpretation {
     #[inline(always)]
     #[must_use]
     pub fn is_ycbcr(&self) -> bool {
-        matches!(self, Self::YbrFull | Self::YbrFull422)
+        matches!(self, Self::YbrFull | Self::YbrFull422 | Self::YbrRct)
     }
 
     #[inline(always)]
@@ -65,6 +73,7 @@ impl Display for PhotometricInterpretation {
             Self::YbrFull => write!(f, "YBR_FULL"),
             Self::YbrFull422 => write!(f, "YBR_FULL_422"),
             Self::Palette => write!(f, "PALETTE COLOR"),
+            Self::YbrRct => write!(f, "YBR_RCT"),
             Self::Unknown(s) => write!(f, "{s}"),
         }
     }

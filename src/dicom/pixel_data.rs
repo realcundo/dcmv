@@ -103,6 +103,10 @@ fn extract_via_dynamic_image(
 #[inline]
 #[must_use]
 fn detect_compression(uid: &str) -> bool {
+    // TODO: Add JPEG-LS support (JPEG-LS Near Lossless/Lossless)
+    // Transfer syntaxes: 1.2.840.10008.1.2.4.80 (JPEG-LS Lossless), 1.2.840.10008.1.2.4.81 (JPEG-LS)
+    // Failing files: SC_rgb_jls_lossy_sample.dcm, MR_small_jpeg_ls_lossless.dcm,
+    //                JPEGLSNearLossless_08.dcm, JPEGLSNearLossless_16.dcm, SC_rgb_jls_lossy_line.dcm
     uid == entries::JPEG_BASELINE.uid()
         || uid == entries::JPEG_EXTENDED.uid()
         || uid == entries::JPEG_LOSSLESS_NON_HIERARCHICAL.uid()

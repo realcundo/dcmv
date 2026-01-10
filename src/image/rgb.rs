@@ -25,6 +25,9 @@ fn extract_rgb_pixels(metadata: &DicomMetadata) -> Result<Vec<u8>> {
     match metadata.bits_allocated {
         8 => extract_rgb_8bit(metadata),
         32 => extract_rgb_32bit(metadata),
+        // TODO: Add 16-bit RGB support
+        // Failing files: SC_rgb_rle_16bit.dcm, SC_rgb_rle_16bit_2frame.dcm
+        // Need to normalize 16-bit RGB values to 8-bit (similar to 32-bit implementation)
         _ => anyhow::bail!(
             "Unsupported bits allocated for RGB: {} (expected 8 or 32)",
             metadata.bits_allocated
