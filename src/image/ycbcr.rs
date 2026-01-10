@@ -145,24 +145,29 @@ fn extract_ycbcr_pixels(metadata: &DicomMetadata) -> Result<Vec<u8>> {
 /// Upsample YBR_FULL_422 interleaved data to full resolution
 ///
 /// Input format: Y0 Y1 Cb0 Cr0 Y2 Y3 Cb1 Cr1 ...
-/// Each Cb/Cr pair covers 2 Y pixels horizontally
+/// Each 2-pixel horizontal group is 4 bytes: [Y0, Y1, Cb, Cr]
+/// Cb and Cr are shared between the two Y pixels in each group.
 fn upsample_ycbcr_422_interleaved(pixel_data: &[u8], rows: usize, cols: usize) -> Result<Vec<u8>> {
     let pixel_count = rows * cols;
     let mut output = vec![0u8; pixel_count * 3];
 
     for y in 0..rows {
+        let row_offset = y * (cols * 2);
+
         for x in 0..cols {
             let out_idx = (y * cols + x) * 3;
-            let in_idx = y * (cols * 2) + x;
 
-            // Y is at even positions in the input stream
-            let y_idx = if x % 2 == 0 { in_idx } else { in_idx - 1 };
-            output[out_idx] = pixel_data[y_idx];
+            // Each 2-pixel group is 4 bytes: [Y0, Y1, Cb, Cr]
+            let group_num = x / 2;
+            let pos_in_group = x % 2;
+            let group_offset = group_num * 4;
 
-            // Cb and Cr are shared between pairs of pixels
-            let chroma_idx = y * cols + (x / 2) * 2 + cols;
-            output[out_idx + 1] = pixel_data[chroma_idx];     // Cb
-            output[out_idx + 2] = pixel_data[chroma_idx + 1]; // Cr
+            // Y is at position 0 or 1 within the group
+            output[out_idx] = pixel_data[row_offset + group_offset + pos_in_group];
+
+            // Cb and Cr are at positions 2 and 3, shared by both pixels in the group
+            output[out_idx + 1] = pixel_data[row_offset + group_offset + 2]; // Cb
+            output[out_idx + 2] = pixel_data[row_offset + group_offset + 3]; // Cr
         }
     }
 
