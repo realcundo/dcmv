@@ -39,14 +39,19 @@ pub fn extract_dicom_data(
 ) -> Result<DicomMetadata> {
     use dicom::dictionary_std::tags;
 
-    let dimensions = parser::extract_dimensions(obj)?;
+    // Build error context early using Into/From trait
+    let error_context: parser::ErrorContext = obj.into();
+    let dimensions = parser::extract_dimensions(obj, &error_context)?;
+
+    // Extract SOP class from error context for use in DicomMetadata
+    let sop_class = error_context.sop_class;
+
     let rescale = parser::extract_rescale_params(obj);
     let pixel_aspect_ratio = parser::extract_pixel_aspect_ratio(obj);
     let number_of_frames = parser::extract_number_of_frames(obj);
     let samples_per_pixel = parser::extract_samples_per_pixel(obj);
     let (bits_allocated, bits_stored) = parser::extract_bit_depth(obj);
     let planar_configuration = parser::extract_planar_configuration(obj);
-    let sop_class = parser::extract_sop_class(obj);
     let transfer_syntax = parser::extract_transfer_syntax(obj);
 
     let (patient_name, patient_id, patient_birth_date) = parser::extract_patient_metadata(obj);
@@ -1142,5 +1147,60 @@ mod tests {
             actual_pixels, expected_values,
             "Pixel values mismatch! See output above for details."
         );
+    }
+
+    #[test]
+    fn test_non_image_rtplan_error_message() {
+        let file_path = Path::new(".test-files/RTPLAN.dcm");
+        let obj = open_dicom_file(file_path).expect("Failed to open RTPLAN.dcm");
+        let result = extract_dicom_data(&obj);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("non-image DICOM file"));
+        assert!(err.contains("Modality: RTPLAN"));
+        assert!(err.contains("SOP Class: RT Plan Storage"));
+        assert!(err.contains("1.2.840.10008.5.1.4.1.1.481.5")); // UID from pydicom test file
+    }
+
+    #[test]
+    #[ignore = "RTSTRUCT.dcm file is missing DICOM meta header - need a valid RTSTRUCT file"]
+    fn test_non_image_rtstruct_error_message() {
+        let file_path = Path::new(".test-files/RTSTRUCT.dcm");
+        let obj = open_dicom_file(file_path).expect("Failed to open RTSTRUCT.dcm");
+        let result = extract_dicom_data(&obj);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("non-image DICOM file"));
+        assert!(err.contains("Modality: RTSTRUCT"));
+        assert!(err.contains("SOP Class: RT Structure Set Storage"));
+    }
+
+    #[test]
+    fn test_non_image_sr_error_message() {
+        let file_path = Path::new(".test-files/SR.dcm");
+        let obj = open_dicom_file(file_path).expect("Failed to open SR.dcm");
+        let result = extract_dicom_data(&obj);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("non-image DICOM file"));
+        assert!(err.contains("Modality: SR"));
+        assert!(err.contains("SOP Class: Comprehensive SR Storage"));
+        assert!(err.contains("1.2.840.10008.5.1.4.1.1.88.33")); // UID from pydicom test file
+    }
+
+    #[test]
+    fn test_non_image_dicomdir_error_message() {
+        let file_path = Path::new(".test-files/DICOMDIR.dcm");
+        let obj = open_dicom_file(file_path).expect("Failed to open DICOMDIR.dcm");
+        let result = extract_dicom_data(&obj);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        eprintln!("DICOMDIR error: {err}");
+        // DICOMDIR might not have SOP Class or Modality, check for generic error
+        assert!(err.contains("Missing or invalid Rows tag"));
     }
 }

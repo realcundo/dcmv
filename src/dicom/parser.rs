@@ -4,20 +4,81 @@ use dicom::core::dictionary::UidDictionary;
 use dicom::encoding::TransferSyntaxIndex;
 use dicom::object::{FileDicomObject, InMemDicomObject, StandardDataDictionary};
 
+/// Partial metadata for error message context
+#[derive(Debug, Clone)]
+pub struct ErrorContext {
+    pub modality: Option<String>,
+    pub sop_class: Option<SOPClass>,
+}
+
+impl ErrorContext {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            modality: None,
+            sop_class: None,
+        }
+    }
+
+    pub fn format_error(&self, tag_name: &str) -> String {
+        let mut parts = Vec::new();
+
+        if let Some(modality) = &self.modality {
+            parts.push(format!("Modality: {modality}"));
+        }
+
+        if let Some(sc) = &self.sop_class {
+            parts.push(format!("SOP Class: {sc}")); // Uses Display: "Name (UID)"
+        }
+
+        if parts.is_empty() {
+            // Generic error when no context available
+            format!("Missing or invalid {tag_name} tag")
+        } else {
+            format!(
+                "Missing or invalid {tag_name} tag - this may be a non-image DICOM file ({})",
+                parts.join(", ")
+            )
+        }
+    }
+}
+
+impl Default for ErrorContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// From DicomObject
+impl From<&FileDicomObject<InMemDicomObject<StandardDataDictionary>>> for ErrorContext {
+    fn from(obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>) -> Self {
+        use dicom::dictionary_std::tags;
+
+        ErrorContext {
+            modality: obj
+                .get(tags::MODALITY)
+                .and_then(|e| e.value().to_str().ok())
+                .map(|s| s.to_string()),
+            sop_class: extract_sop_class(obj),
+        }
+    }
+}
+
 pub fn extract_dimensions(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
+    error_context: &ErrorContext,
 ) -> Result<Dimensions> {
     use dicom::dictionary_std::tags;
 
     let rows = obj
         .get(tags::ROWS)
         .and_then(|e| e.to_int::<u16>().ok())
-        .context("Missing or invalid Rows tag")?;
+        .with_context(|| error_context.format_error("Rows"))?;
 
     let cols = obj
         .get(tags::COLUMNS)
         .and_then(|e| e.to_int::<u16>().ok())
-        .context("Missing or invalid Columns tag")?;
+        .with_context(|| error_context.format_error("Columns"))?;
 
     Ok(Dimensions::new(rows, cols))
 }

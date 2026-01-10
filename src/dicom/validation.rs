@@ -1,11 +1,6 @@
 use crate::dicom::PhotometricInterpretation;
 use anyhow::{Result, bail};
 
-// TODO: Provide better error messages for non-image DICOM files
-// Files without pixel data (RTPLAN, RTSTRUCT, SR, DICOMDIR, etc.) currently fail with
-// "Missing or invalid Rows tag". Consider detecting these SOP Classes and providing
-// more helpful error messages like "This is a non-image DICOM file (RTPLAN) which cannot be viewed as an image"
-
 #[inline]
 pub fn validate_photometric_samples(
     photometric_interpretation: &PhotometricInterpretation,
