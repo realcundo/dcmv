@@ -113,6 +113,10 @@ mod tests {
     use crate::image::convert_to_image;
     use std::path::Path;
 
+    // Type aliases for test helper functions (simplifies complex types)
+    type GrayscalePixelSamples = [((u32, u32), u8); 10];
+    type RgbPixelSamples = [((u32, u32), (u8, u8, u8)); 10];
+
     #[test]
     fn test_file1_metadata() {
         let file_path = Path::new(".test-files/file1.dcm");
@@ -146,19 +150,25 @@ mod tests {
         assert_eq!(image.width(), u32::from(metadata.cols()));
         assert_eq!(image.height(), u32::from(metadata.rows()));
 
-        // Verify pixel values - check 5 non-black pixels
+        // Verify pixel values - check grayscale consistency
         // Grayscale converted to RGB, so R=G=B for all pixels
         let rgb = image.as_rgb8().expect("Should be RGB image");
         let width = rgb.width();
         let height = rgb.height();
 
-        // Sample pixels at 1/4, 1/2, and 3/4 positions (avoiding black corners)
+        // Sample 10 pixels to verify grayscale conversion (R=G=B)
+        // and to catch decoding regressions
         let sample_coords = [
             (width / 4, height / 4),
             (width / 2, height / 4),
+            (3 * width / 4, height / 4),
             (width / 4, height / 2),
             (width / 2, height / 2),
+            (3 * width / 4, height / 2),
+            (width / 4, 3 * height / 4),
+            (width / 2, 3 * height / 4),
             (3 * width / 4, 3 * height / 4),
+            (width / 2, height / 2 + 10),
         ];
 
         for (x, y) in sample_coords {
@@ -166,9 +176,23 @@ mod tests {
             // For grayscale images, R=G=B
             assert_eq!(pixel[0], pixel[1], "Grayscale should have R=G at ({},{})", x, y);
             assert_eq!(pixel[1], pixel[2], "Grayscale should have G=B at ({},{})", x, y);
-            // At least some pixels should be non-black (value > 0)
-            // Just verify pixel is accessible
         }
+
+        // Sample 10 specific pixel values to catch decoding regressions
+        let expected_pixels = [
+            ((width / 4, height / 4), 173),
+            ((width / 2, height / 4), 225),
+            ((3 * width / 4, height / 4), 152),
+            ((width / 4, height / 2), 143),
+            ((width / 2, height / 2), 231),
+            ((3 * width / 4, height / 2), 122),
+            ((width / 4, 3 * height / 4), 101),
+            ((width / 2, 3 * height / 4), 239),
+            ((3 * width / 4, 3 * height / 4), 105),
+            ((width / 2, height / 2 + 10), 229),
+        ];
+
+        assert_grayscale_pixels(rgb, "test_file1_metadata", &expected_pixels);
 
         // Display metadata - presence checks only (no personal data)
         assert!(metadata.patient_name.is_some());
@@ -226,26 +250,26 @@ mod tests {
         assert_eq!(image.width(), u32::from(metadata.cols()));
         assert_eq!(image.height(), u32::from(metadata.rows()));
 
-        // Verify pixel values - check 5 non-black pixels
-        // RGB image with different channel values
+        // Verify pixel values - check 10 specific pixels to catch decoding regressions
         let rgb = image.as_rgb8().expect("Should be RGB image");
         let width = rgb.width();
         let height = rgb.height();
 
-        // Sample pixels at 1/4, 1/2, and 3/4 positions (avoiding black corners)
-        let sample_coords = [
-            (width / 4, height / 4),
-            (width / 2, height / 4),
-            (width / 4, height / 2),
-            (width / 2, height / 2),
-            (3 * width / 4, 3 * height / 4),
+        // Sample 10 specific pixel values (RGB image with different channel values)
+        let expected_pixels = [
+            ((width / 4, height / 4), (63, 80, 157)),
+            ((width / 2, height / 4), (14, 14, 141)),
+            ((3 * width / 4, height / 4), (7, 7, 135)),
+            ((width / 4, height / 2), (7, 7, 135)),
+            ((width / 2, height / 2), (3, 3, 130)),
+            ((3 * width / 4, height / 2), (86, 127, 166)),
+            ((width / 4, 3 * height / 4), (42, 42, 42)),
+            ((width / 2, 3 * height / 4), (56, 56, 56)),
+            ((3 * width / 4, 3 * height / 4), (65, 65, 65)),
+            ((width / 2, height / 2 + 10), (13, 13, 140)),
         ];
 
-        for (x, y) in sample_coords {
-            let _pixel = rgb.get_pixel(x, y);
-            // RGB pixels can have different channel values
-            // Just verify pixels are accessible
-        }
+        assert_rgb_pixels(rgb, "test_file2_metadata", &expected_pixels);
 
         // Display metadata - presence checks only (no personal data)
         assert!(metadata.patient_name.is_some());
@@ -303,19 +327,25 @@ mod tests {
         assert_eq!(image.width(), u32::from(metadata.cols()));
         assert_eq!(image.height(), u32::from(metadata.rows()));
 
-        // Verify pixel values - check 5 non-black pixels
+        // Verify pixel values - check grayscale consistency
         // Grayscale converted to RGB, so R=G=B for all pixels
         let rgb = image.as_rgb8().expect("Should be RGB image");
         let width = rgb.width();
         let height = rgb.height();
 
-        // Sample pixels at 1/4, 1/2, and 3/4 positions (avoiding black corners)
+        // Sample 10 pixels to verify grayscale conversion (R=G=B)
+        // and to catch decoding regressions
         let sample_coords = [
             (width / 4, height / 4),
             (width / 2, height / 4),
+            (3 * width / 4, height / 4),
             (width / 4, height / 2),
             (width / 2, height / 2),
+            (3 * width / 4, height / 2),
+            (width / 4, 3 * height / 4),
+            (width / 2, 3 * height / 4),
             (3 * width / 4, 3 * height / 4),
+            (width / 2, height / 2 + 10),
         ];
 
         for (x, y) in sample_coords {
@@ -324,6 +354,22 @@ mod tests {
             assert_eq!(pixel[0], pixel[1], "Grayscale should have R=G at ({},{})", x, y);
             assert_eq!(pixel[1], pixel[2], "Grayscale should have G=B at ({},{})", x, y);
         }
+
+        // Sample 10 specific pixel values to catch decoding regressions
+        let expected_pixels = [
+            ((width / 4, height / 4), 74),
+            ((width / 2, height / 4), 0),
+            ((3 * width / 4, height / 4), 0),
+            ((width / 4, height / 2), 79),
+            ((width / 2, height / 2), 0),
+            ((3 * width / 4, height / 2), 0),
+            ((width / 4, 3 * height / 4), 40),
+            ((width / 2, 3 * height / 4), 0),
+            ((3 * width / 4, 3 * height / 4), 0),
+            ((width / 2, height / 2 + 10), 0),
+        ];
+
+        assert_grayscale_pixels(rgb, "test_file3_metadata", &expected_pixels);
 
         // Display metadata - presence checks only (no personal data)
         assert!(metadata.patient_name.is_some());
@@ -386,19 +432,25 @@ mod tests {
         assert_eq!(image.width(), u32::from(metadata.cols()));
         assert_eq!(image.height(), u32::from(metadata.rows()));
 
-        // Verify pixel values - check 5 non-black pixels
+        // Verify pixel values - check grayscale consistency
         // Grayscale converted to RGB, so R=G=B for all pixels
         let rgb = image.as_rgb8().expect("Should be RGB image");
         let width = rgb.width();
         let height = rgb.height();
 
-        // Sample pixels at 1/4, 1/2, and 3/4 positions (avoiding black corners)
+        // Sample 10 pixels to verify grayscale conversion (R=G=B)
+        // and to catch decoding regressions
         let sample_coords = [
             (width / 4, height / 4),
             (width / 2, height / 4),
+            (3 * width / 4, height / 4),
             (width / 4, height / 2),
             (width / 2, height / 2),
+            (3 * width / 4, height / 2),
+            (width / 4, 3 * height / 4),
+            (width / 2, 3 * height / 4),
             (3 * width / 4, 3 * height / 4),
+            (width / 2, height / 2 + 10),
         ];
 
         for (x, y) in sample_coords {
@@ -407,6 +459,22 @@ mod tests {
             assert_eq!(pixel[0], pixel[1], "Grayscale should have R=G at ({},{})", x, y);
             assert_eq!(pixel[1], pixel[2], "Grayscale should have G=B at ({},{})", x, y);
         }
+
+        // Sample 10 specific pixel values to catch decoding regressions
+        let expected_pixels = [
+            ((width / 4, height / 4), 101),
+            ((width / 2, height / 4), 20),
+            ((3 * width / 4, height / 4), 21),
+            ((width / 4, height / 2), 16),
+            ((width / 2, height / 2), 6),
+            ((3 * width / 4, height / 2), 153),
+            ((width / 4, 3 * height / 4), 18),
+            ((width / 2, 3 * height / 4), 4),
+            ((3 * width / 4, 3 * height / 4), 59),
+            ((width / 2, height / 2 + 10), 8),
+        ];
+
+        assert_grayscale_pixels(rgb, "test_big_endian_metadata", &expected_pixels);
     }
 
     #[test]
@@ -495,26 +563,27 @@ mod tests {
         assert_eq!(image.width(), u32::from(metadata.cols()));
         assert_eq!(image.height(), u32::from(metadata.rows()));
 
-        // Verify pixel values - check 5 non-black pixels
+        // Verify pixel values - check 10 specific pixels to catch decoding regressions
         // YCbCr converted to RGB, channels can have different values
         let rgb = image.as_rgb8().expect("Should be RGB image");
         let width = rgb.width();
         let height = rgb.height();
 
-        // Sample pixels at 1/4, 1/2, and 3/4 positions (avoiding black corners)
-        let sample_coords = [
-            (width / 4, height / 4),
-            (width / 2, height / 4),
-            (width / 4, height / 2),
-            (width / 2, height / 2),
-            (3 * width / 4, 3 * height / 4),
+        // Sample 10 specific pixel values
+        let expected_pixels = [
+            ((width / 4, height / 4), (0, 255, 4)),
+            ((width / 2, height / 4), (0, 255, 4)),
+            ((3 * width / 4, height / 4), (0, 255, 4)),
+            ((width / 4, height / 2), (124, 130, 255)),
+            ((width / 2, height / 2), (124, 130, 255)),
+            ((3 * width / 4, height / 2), (124, 130, 255)),
+            ((width / 4, 3 * height / 4), (64, 64, 64)),
+            ((width / 2, 3 * height / 4), (64, 64, 64)),
+            ((3 * width / 4, 3 * height / 4), (64, 64, 64)),
+            ((width / 2, height / 2 + 10), (0, 3, 1)),
         ];
 
-        for (x, y) in sample_coords {
-            let _pixel = rgb.get_pixel(x, y);
-            // RGB pixels can have different channel values
-            // Just verify pixels are accessible
-        }
+        assert_rgb_pixels(rgb, "test_ycbcr_color_metadata", &expected_pixels);
     }
 
     #[test]
@@ -575,9 +644,26 @@ mod tests {
         assert_eq!(image.width(), u32::from(metadata.cols()));
         assert_eq!(image.height(), u32::from(metadata.rows()));
 
-        // Verify RGB image was created
+        // Verify pixel values - check 10 specific pixels to catch decoding regressions
         let rgb = image.as_rgb8().expect("Should be RGB image after YCbCr conversion");
-        assert!(rgb.pixels().next().is_some(), "Should have at least one pixel");
+        let width = rgb.width();
+        let height = rgb.height();
+
+        // Sample 10 specific pixel values
+        let expected_pixels = [
+            ((width / 4, height / 4), (0, 0, 0)),
+            ((width / 2, height / 4), (49, 49, 49)),
+            ((3 * width / 4, height / 4), (0, 0, 0)),
+            ((width / 4, height / 2), (1, 1, 1)),
+            ((width / 2, height / 2), (7, 7, 7)),
+            ((3 * width / 4, height / 2), (0, 0, 0)),
+            ((width / 4, 3 * height / 4), (1, 1, 1)),
+            ((width / 2, 3 * height / 4), (135, 135, 135)),
+            ((3 * width / 4, 3 * height / 4), (2, 2, 2)),
+            ((width / 2, height / 2 + 10), (25, 25, 25)),
+        ];
+
+        assert_rgb_pixels(rgb, "test_jpeg_ycbcr_multiframe_metadata", &expected_pixels);
     }
 
     #[test]
@@ -620,14 +706,19 @@ mod tests {
         let width = rgb.width();
         let height = rgb.height();
 
-        // Sample pixels to verify grayscale conversion (R=G=B)
-        // Use 5 sample points consistent with existing tests
+        // Sample 10 pixels to verify grayscale conversion (R=G=B)
+        // and to catch decoding regressions
         let sample_coords = [
             (width / 4, height / 4),
             (width / 2, height / 4),
+            (3 * width / 4, height / 4),
             (width / 4, height / 2),
             (width / 2, height / 2),
+            (3 * width / 4, height / 2),
+            (width / 4, 3 * height / 4),
+            (width / 2, 3 * height / 4),
             (3 * width / 4, 3 * height / 4),
+            (width / 2, height / 2 + 10),
         ];
 
         for (x, y) in sample_coords {
@@ -635,6 +726,22 @@ mod tests {
             assert_eq!(pixel[0], pixel[1], "Grayscale should have R=G at ({},{})", x, y);
             assert_eq!(pixel[1], pixel[2], "Grayscale should have G=B at ({},{})", x, y);
         }
+
+        // Sample 10 specific pixel values to catch decoding regressions
+        let expected_pixels = [
+            ((width / 4, height / 4), 101),
+            ((width / 2, height / 4), 20),
+            ((3 * width / 4, height / 4), 21),
+            ((width / 4, height / 2), 16),
+            ((width / 2, height / 2), 6),
+            ((3 * width / 4, height / 2), 153),
+            ((width / 4, 3 * height / 4), 18),
+            ((width / 2, 3 * height / 4), 4),
+            ((3 * width / 4, 3 * height / 4), 59),
+            ((width / 2, height / 2 + 10), 8),
+        ];
+
+        assert_grayscale_pixels(rgb, "test_jpeg2000_lossless_metadata", &expected_pixels);
 
         // Display metadata - presence checks only (no personal data)
         assert!(metadata.patient_name.is_some());
@@ -700,14 +807,19 @@ mod tests {
         let width = rgb.width();
         let height = rgb.height();
 
-        // Sample pixels to verify grayscale conversion (R=G=B)
-        // Use 5 sample points consistent with existing tests
+        // Sample 10 pixels to verify grayscale conversion (R=G=B)
+        // and to catch decoding regressions
         let sample_coords = [
             (width / 4, height / 4),
             (width / 2, height / 4),
+            (3 * width / 4, height / 4),
             (width / 4, height / 2),
             (width / 2, height / 2),
+            (3 * width / 4, height / 2),
+            (width / 4, 3 * height / 4),
+            (width / 2, 3 * height / 4),
             (3 * width / 4, 3 * height / 4),
+            (width / 2, height / 2 + 10),
         ];
 
         for (x, y) in sample_coords {
@@ -715,6 +827,22 @@ mod tests {
             assert_eq!(pixel[0], pixel[1], "Grayscale should have R=G at ({},{})", x, y);
             assert_eq!(pixel[1], pixel[2], "Grayscale should have G=B at ({},{})", x, y);
         }
+
+        // Sample 10 specific pixel values to catch decoding regressions
+        let expected_pixels = [
+            ((width / 4, height / 4), 0),
+            ((width / 2, height / 4), 0),
+            ((3 * width / 4, height / 4), 0),
+            ((width / 4, height / 2), 0),
+            ((width / 2, height / 2), 0),
+            ((3 * width / 4, height / 2), 0),
+            ((width / 4, 3 * height / 4), 254),
+            ((width / 2, 3 * height / 4), 254),
+            ((3 * width / 4, 3 * height / 4), 254),
+            ((width / 2, height / 2 + 10), 0),
+        ];
+
+        assert_grayscale_pixels(rgb, "test_jpeg2000_lossy_metadata", &expected_pixels);
 
         // Display metadata - presence checks only (no personal data)
         assert!(metadata.patient_name.is_some());
@@ -842,5 +970,72 @@ mod tests {
         assert!(err_msg.to_lowercase().contains("out of range") ||
                 err_msg.to_lowercase().contains("frame"),
             "Expected 'out of range' error, got: {}", err_msg);
+    }
+
+    /// Helper to verify grayscale pixel values at specific coordinates
+    ///
+    /// # Arguments
+    /// * `rgb` - The RGB image buffer (grayscale images are converted to RGB format)
+    /// * `test_name` - Name of the test (for debug output)
+    /// * `expected_pixels` - Array of (coordinates, expected_value) pairs
+    fn assert_grayscale_pixels(rgb: &image::RgbImage, test_name: &str, expected_pixels: &GrayscalePixelSamples) {
+        // Collect actual values
+        let actual_pixels: Vec<_> = expected_pixels
+            .iter()
+            .map(|((x, y), _)| (*x, *y, rgb.get_pixel(*x, *y)[0]))
+            .collect();
+
+        let expected_values: Vec<_> = expected_pixels.iter().map(|((x, y), v)| (*x, *y, *v)).collect();
+
+        // Print debug output
+        println!("\n{test_name} pixel values:");
+        for (i, ((x, y), expected)) in expected_pixels.iter().enumerate() {
+            let actual = actual_pixels[i].2;
+            println!("  [{i}] ({x}, {y}): expected={expected}, actual={actual}");
+        }
+
+        // Assert
+        assert_eq!(
+            actual_pixels, expected_values,
+            "Pixel values mismatch! See output above for details."
+        );
+    }
+
+    /// Helper to verify RGB pixel values at specific coordinates
+    ///
+    /// # Arguments
+    /// * `rgb` - The RGB image buffer
+    /// * `test_name` - Name of the test (for debug output)
+    /// * `expected_pixels` - Array of (coordinates, expected_rgb) pairs
+    fn assert_rgb_pixels(rgb: &image::RgbImage, test_name: &str, expected_pixels: &RgbPixelSamples) {
+        // Collect actual values (all 3 channels)
+        let actual_pixels: Vec<_> = expected_pixels
+            .iter()
+            .map(|((x, y), _)| {
+                (
+                    *x,
+                    *y,
+                    (
+                        rgb.get_pixel(*x, *y)[0],
+                        rgb.get_pixel(*x, *y)[1],
+                        rgb.get_pixel(*x, *y)[2],
+                    ),
+                )
+            })
+            .collect();
+
+        let expected_values: Vec<_> = expected_pixels.iter().map(|((x, y), v)| (*x, *y, *v)).collect();
+
+        // Print debug output
+        println!("\n{test_name} pixel values:");
+        for (i, ((x, y), expected)) in expected_pixels.iter().enumerate() {
+            let actual = actual_pixels[i].2;
+            println!("  [{i}] ({x}, {y}): expected={expected:?}, actual={actual:?}");
+        }
+
+        assert_eq!(
+            actual_pixels, expected_values,
+            "Pixel values mismatch! See output above for details."
+        );
     }
 }
