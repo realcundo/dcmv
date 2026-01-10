@@ -1,21 +1,10 @@
-//! RGB image conversion
-//!
-//! This module handles conversion of DICOM RGB pixel data to RGB images,
-//! supporting 8-bit interleaved and 32-bit color depths.
-//! Note: 8-bit RGB with planar configuration is now handled by `to_dynamic_image()`
-//! in the pixel data extraction phase.
-
 use anyhow::{Context, Result};
 use image::{DynamicImage, ImageBuffer, RgbImage};
 use crate::dicom::DicomMetadata;
 use super::normalization::{find_min_max, normalize_u32_to_u8};
 
-/// Convert RGB DICOM data to RGB image
 pub fn convert_rgb(metadata: &DicomMetadata) -> Result<DynamicImage> {
     let pixel_data = extract_rgb_pixels(metadata)?;
-
-    // For RGB, we don't apply window/level or rescale
-    // Just convert to proper format
 
     let rgb_image: RgbImage = ImageBuffer::from_raw(
         u32::from(metadata.cols()),
@@ -26,7 +15,6 @@ pub fn convert_rgb(metadata: &DicomMetadata) -> Result<DynamicImage> {
     Ok(DynamicImage::ImageRgb8(rgb_image))
 }
 
-/// Extract RGB pixel data from raw bytes, handling bit depth and planar configuration
 fn extract_rgb_pixels(metadata: &DicomMetadata) -> Result<Vec<u8>> {
     match metadata.bits_allocated {
         8 => extract_rgb_8bit(metadata),
@@ -38,10 +26,6 @@ fn extract_rgb_pixels(metadata: &DicomMetadata) -> Result<Vec<u8>> {
     }
 }
 
-/// Extract 8-bit RGB pixel data
-///
-/// Note: 8-bit RGB with planar configuration is now handled by `to_dynamic_image()`
-/// in the pixel data extraction phase, so this function only handles interleaved RGB.
 fn extract_rgb_8bit(metadata: &DicomMetadata) -> Result<Vec<u8>> {
     let bytes_per_sample = (metadata.bits_allocated / 8) as usize;
     let pixels_per_frame = metadata.rows() as usize * metadata.cols() as usize;
@@ -49,7 +33,6 @@ fn extract_rgb_8bit(metadata: &DicomMetadata) -> Result<Vec<u8>> {
 
     let data = metadata.pixel_data();
 
-    // For multi-frame images, only extract the first frame
     let pixel_data = if data.len() > expected_size {
         &data[..expected_size]
     } else {
@@ -64,16 +47,12 @@ fn extract_rgb_8bit(metadata: &DicomMetadata) -> Result<Vec<u8>> {
         );
     }
 
-    // Only interleaved RGB (planar configuration 0 or None)
-    // Planar configuration 1 is handled by to_dynamic_image()
     Ok(pixel_data.to_vec())
 }
 
-/// Extract 32-bit RGB pixel data and normalize to 8-bit
 fn extract_rgb_32bit(metadata: &DicomMetadata) -> Result<Vec<u8>> {
     let pixel_count = metadata.rows() as usize * metadata.cols() as usize;
 
-    // For multi-frame images, only extract the first frame
     let bytes_per_sample = (metadata.bits_allocated / 8) as usize;
     let expected_size = pixel_count * 3 * bytes_per_sample;
 
@@ -92,14 +71,12 @@ fn extract_rgb_32bit(metadata: &DicomMetadata) -> Result<Vec<u8>> {
         );
     }
 
-    // Parse 32-bit RGB values
     let mut r_values = Vec::with_capacity(pixel_count);
     let mut g_values = Vec::with_capacity(pixel_count);
     let mut b_values = Vec::with_capacity(pixel_count);
 
     match metadata.planar_configuration {
         None | Some(0) => {
-            // Interleaved: R0(4B) G0(4B) B0(4B) R1(4B) G1(4B) B1(4B)...
             for chunk in pixel_data.chunks_exact(12) {
                 let r = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
                 let g = u32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]);
@@ -110,7 +87,6 @@ fn extract_rgb_32bit(metadata: &DicomMetadata) -> Result<Vec<u8>> {
             }
         }
         Some(1) => {
-            // Planar: RRRR... GGGG... BBBB... (each 4 bytes per sample)
             let bytes_per_channel = pixel_count * 4;
 
             let r_data = &pixel_data[..bytes_per_channel];
@@ -132,17 +108,14 @@ fn extract_rgb_32bit(metadata: &DicomMetadata) -> Result<Vec<u8>> {
         ),
     }
 
-    // Find min/max for each channel for normalization
     let (r_min, r_max) = find_min_max(&r_values);
     let (g_min, g_max) = find_min_max(&g_values);
     let (b_min, b_max) = find_min_max(&b_values);
 
-    // Calculate ranges (avoid division by zero)
     let r_range = if r_max > r_min { r_max - r_min } else { 1.0_f32 };
     let g_range = if g_max > g_min { g_max - g_min } else { 1.0_f32 };
     let b_range = if b_max > b_min { b_max - b_min } else { 1.0_f32 };
 
-    // Normalize to 0-255 and interleave
     let mut result = Vec::with_capacity(pixel_count * 3);
     for i in 0..pixel_count {
         let r = normalize_u32_to_u8(r_values[i], r_min, r_range);

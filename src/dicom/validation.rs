@@ -1,12 +1,6 @@
-//! DICOM metadata validation
-//!
-//! This module provides validation functions to ensure DICOM metadata
-//! consistency and correctness.
-
 use anyhow::{bail, Result};
 use crate::dicom::PhotometricInterpretation;
 
-/// Validate photometric interpretation matches samples per pixel
 #[inline]
 pub fn validate_photometric_samples(
     photometric_interpretation: &PhotometricInterpretation,
@@ -29,7 +23,6 @@ pub fn validate_photometric_samples(
     Ok(())
 }
 
-/// Validate planar configuration is only used with RGB/YCbCr
 #[inline]
 pub fn validate_planar_configuration(
     planar_configuration: Option<u16>,
@@ -45,7 +38,6 @@ pub fn validate_planar_configuration(
     Ok(())
 }
 
-/// Validate bits allocated is supported
 #[inline]
 pub fn validate_bits_allocated(bits_allocated: u16) -> Result<()> {
     if !matches!(bits_allocated, 8 | 16 | 32) {
@@ -57,7 +49,6 @@ pub fn validate_bits_allocated(bits_allocated: u16) -> Result<()> {
     Ok(())
 }
 
-/// Validate all metadata constraints
 pub fn validate_metadata(
     photometric_interpretation: &PhotometricInterpretation,
     samples_per_pixel: u16,

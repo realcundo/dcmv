@@ -1,8 +1,3 @@
-//! DICOM metadata extraction functions
-//!
-//! This module provides focused functions for extracting specific metadata
-//! from DICOM objects, breaking down the large extract_dicom_data function.
-
 use anyhow::{Context, Result};
 use dicom::core::dictionary::UidDictionary;
 use dicom::encoding::TransferSyntaxIndex;
@@ -13,7 +8,6 @@ use dicom::object::{
 };
 use crate::types::{Dimensions, RescaleParams, PixelAspectRatio, TransferSyntax, SOPClass};
 
-/// Extract basic image dimensions from DICOM object
 pub fn extract_dimensions(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
 ) -> Result<Dimensions> {
@@ -32,7 +26,6 @@ pub fn extract_dimensions(
     Ok(Dimensions::new(rows, cols))
 }
 
-/// Extract rescale parameters (slope and intercept) from DICOM object
 pub fn extract_rescale_params(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
 ) -> RescaleParams {
@@ -51,7 +44,6 @@ pub fn extract_rescale_params(
     RescaleParams::new(slope, intercept)
 }
 
-/// Extract pixel aspect ratio from DICOM object (if present)
 pub fn extract_pixel_aspect_ratio(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
 ) -> Option<PixelAspectRatio> {
@@ -67,7 +59,6 @@ pub fn extract_pixel_aspect_ratio(
         })
 }
 
-/// Extract number of frames from DICOM object
 #[inline]
 pub fn extract_number_of_frames(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
@@ -79,20 +70,17 @@ pub fn extract_number_of_frames(
         .unwrap_or(1)
 }
 
-/// Extract samples per pixel from DICOM object
 #[inline]
 pub fn extract_samples_per_pixel(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
 ) -> u16 {
     use dicom::dictionary_std::tags;
 
-    // Default to 1 (grayscale) for backward compatibility
     obj.get(tags::SAMPLES_PER_PIXEL)
         .and_then(|e| e.to_int::<u16>().ok())
         .unwrap_or(1)
 }
 
-/// Extract bit depth information from DICOM object
 pub fn extract_bit_depth(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
 ) -> Result<(u16, u16)> {
@@ -111,7 +99,6 @@ pub fn extract_bit_depth(
     Ok((bits_allocated, bits_stored))
 }
 
-/// Extract planar configuration from DICOM object (for RGB/YCbCr only)
 #[inline]
 pub fn extract_planar_configuration(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
@@ -122,7 +109,6 @@ pub fn extract_planar_configuration(
         .and_then(|e| e.to_int::<u16>().ok())
 }
 
-/// Extract transfer syntax from DICOM meta header
 pub fn extract_transfer_syntax(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
 ) -> TransferSyntax {
@@ -136,7 +122,6 @@ pub fn extract_transfer_syntax(
     TransferSyntax::new(uid, name)
 }
 
-/// Extract SOP class with dictionary lookup from DICOM object
 pub fn extract_sop_class(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
 ) -> Option<SOPClass> {
@@ -152,7 +137,6 @@ pub fn extract_sop_class(
         })
 }
 
-/// Extract patient metadata (name, ID, birth date) from DICOM object
 pub fn extract_patient_metadata(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
 ) -> (Option<String>, Option<String>, Option<String>) {
@@ -176,7 +160,6 @@ pub fn extract_patient_metadata(
     (patient_name, patient_id, patient_birth_date)
 }
 
-/// Extract study metadata from DICOM object
 pub fn extract_study_metadata(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
 ) -> (Option<String>, Option<String>, Option<String>, Option<String>) {
@@ -205,7 +188,6 @@ pub fn extract_study_metadata(
     (accession_number, study_date, study_description, modality)
 }
 
-/// Extract series and image metadata from DICOM object
 pub fn extract_series_metadata(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
 ) -> (Option<String>, Option<f64>) {

@@ -5,5 +5,4 @@ pub mod display;
 pub mod display_metadata;
 pub mod types;
 
-// Re-export commonly used functions
 pub use display_metadata::print_metadata;

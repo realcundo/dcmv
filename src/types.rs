@@ -1,12 +1,8 @@
 //! Domain-specific types for DICOM metadata
-//!
-//! This module provides strongly-typed wrappers for DICOM concepts that were
-//! previously represented as tuples or primitive types, improving type safety
-//! and code clarity.
 
 use std::fmt;
 
-/// DICOM transfer syntax with proper type instead of (String, String)
+/// DICOM transfer syntax (UID, name)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TransferSyntax {
     pub uid: String,
@@ -18,14 +14,12 @@ impl TransferSyntax {
         Self { uid, name }
     }
 
-    /// Check if this is big-endian transfer syntax
     #[inline(always)]
     #[must_use]
     pub fn is_big_endian(&self) -> bool {
         self.uid == "1.2.840.10008.1.2.2" // Explicit VR Big Endian
     }
 
-    /// Check if this uses JPEG compression
     #[inline(always)]
     #[must_use]
     pub fn is_jpeg_compressed(&self) -> bool {
@@ -33,21 +27,18 @@ impl TransferSyntax {
             self.uid.contains("1.2.840.10008.1.2.4") // JPEG family
     }
 
-    /// Check if this uses JPEG2000 compression
     #[inline(always)]
     #[must_use]
     pub fn is_jpeg2000(&self) -> bool {
         self.uid.contains("JPEG2000")
     }
 
-    /// Check if this uses RLE compression
     #[inline(always)]
     #[must_use]
     pub fn is_rle_compressed(&self) -> bool {
         self.uid.contains("1.2.840.10008.1.2.5") // RLE lossless
     }
 
-    /// Check if this is compressed (any compression type)
     #[inline(always)]
     #[must_use]
     pub fn is_compressed(&self) -> bool {
@@ -61,7 +52,7 @@ impl fmt::Display for TransferSyntax {
     }
 }
 
-/// SOP Class with proper type instead of Option<(String, String)>
+/// SOP Class (UID, name)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SOPClass {
     pub uid: String,
@@ -80,7 +71,6 @@ impl fmt::Display for SOPClass {
     }
 }
 
-/// Image dimensions with validation
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Dimensions {
     pub rows: u16,
@@ -123,7 +113,6 @@ impl RescaleParams {
         Self { slope, intercept }
     }
 
-    /// Default rescale parameters (no transformation)
     #[must_use]
     pub const fn default() -> Self {
         Self {
@@ -132,7 +121,6 @@ impl RescaleParams {
         }
     }
 
-    /// Apply rescale to a pixel value
     #[inline(always)]
     #[must_use]
     pub fn apply(&self, pixel: u16) -> f64 {
@@ -146,7 +134,6 @@ impl fmt::Display for RescaleParams {
     }
 }
 
-/// Pixel aspect ratio (vertical:horizontal)
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PixelAspectRatio {
     pub vertical: f64,
@@ -161,14 +148,12 @@ impl PixelAspectRatio {
         }
     }
 
-    /// Get the ratio as vertical/horizontal
     #[inline(always)]
     #[must_use]
     pub fn ratio(&self) -> f64 {
         self.vertical / self.horizontal
     }
 
-    /// Check if pixels are square (1:1)
     #[inline(always)]
     #[must_use]
     pub fn is_square(&self) -> bool {

@@ -1,14 +1,8 @@
-//! Image conversion module
-//!
-//! This module handles conversion of DICOM pixel data to RGB images,
-//! supporting various photometric interpretations and bit depths.
-
 mod normalization;
 mod grayscale;
 mod rgb;
 mod ycbcr;
 
-// Re-export public API for backward compatibility
 pub use grayscale::convert_grayscale;
 pub use rgb::convert_rgb;
 pub use ycbcr::convert_ycbcr;
@@ -17,15 +11,7 @@ use anyhow::Result;
 use image::DynamicImage;
 use crate::dicom::{DicomMetadata, PhotometricInterpretation};
 
-/// Convert DICOM pixel data to a DynamicImage
-///
-/// This is the main entry point for image conversion, dispatching to the
-/// appropriate conversion function based on the photometric interpretation.
-///
-/// For JPEG-compressed YCbCr images, the decoder already converts to RGB,
-/// so we skip the YCbCr conversion step.
 pub fn convert_to_image(metadata: &DicomMetadata) -> Result<DynamicImage> {
-    // Short-circuit: if pixel data is already RGB (from JPEG decoder), convert directly
     if metadata.is_already_rgb() {
         return convert_rgb(metadata);
     }

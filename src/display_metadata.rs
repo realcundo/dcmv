@@ -1,8 +1,6 @@
 use crate::dicom::DicomMetadata;
 
-/// Print DICOM metadata to stdout
 pub fn print_metadata(metadata: &DicomMetadata) {
-    // Print fields directly from metadata struct
     print_field("Patient Name", &metadata.patient_name);
     print_field("Patient ID", &metadata.patient_id);
     print_field("Birth Date", &metadata.patient_birth_date);
@@ -33,7 +31,6 @@ fn print_field(name: &str, value: &Option<String>) {
     }
 }
 
-/// Print dimensions as "WIDTHxHEIGHTx(number_of_planes) [${photometric_interpretation}]"
 fn print_dimensions(metadata: &DicomMetadata) {
     let dims = format!("{}x{}", metadata.cols(), metadata.rows());
     println!(

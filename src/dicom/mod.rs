@@ -1,7 +1,4 @@
 //! DICOM file parsing and metadata extraction
-//!
-//! This module provides functionality for opening DICOM files and extracting
-//! metadata and pixel data.
 
 mod photometric;
 mod metadata;
@@ -36,7 +33,6 @@ pub fn extract_dicom_data(
 ) -> Result<DicomMetadata> {
     use dicom::dictionary_std::tags;
 
-    // Extract metadata using helper functions
     let dimensions = parser::extract_dimensions(obj)?;
     let rescale = parser::extract_rescale_params(obj);
     let pixel_aspect_ratio = parser::extract_pixel_aspect_ratio(obj);
@@ -47,12 +43,10 @@ pub fn extract_dicom_data(
     let sop_class = parser::extract_sop_class(obj);
     let transfer_syntax = parser::extract_transfer_syntax(obj);
 
-    // Extract metadata groups
     let (patient_name, patient_id, patient_birth_date) = parser::extract_patient_metadata(obj);
     let (accession_number, study_date, study_description, modality) = parser::extract_study_metadata(obj);
     let (series_description, slice_thickness) = parser::extract_series_metadata(obj);
 
-    // Parse photometric interpretation
     let photometric_interpretation = obj
         .get(tags::PHOTOMETRIC_INTERPRETATION)
         .and_then(|e| e.value().to_str().ok())
@@ -65,7 +59,6 @@ pub fn extract_dicom_data(
         .context("Failed to parse photometric interpretation")?
         .unwrap_or(PhotometricInterpretation::Monochrome2); // Default to Monochrome2
 
-    // Extract pixel data
     let pixel_data = pixel_data::extract_pixel_data(
         obj,
         bits_allocated,
@@ -74,7 +67,6 @@ pub fn extract_dicom_data(
         planar_configuration,
     )?;
 
-    // Validate all constraints
     validation::validate_metadata(
         &photometric_interpretation,
         samples_per_pixel,
