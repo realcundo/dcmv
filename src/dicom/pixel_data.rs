@@ -42,13 +42,7 @@ pub fn extract_pixel_data(
         return extract_via_dynamic_image(obj);
     }
 
-    // TODO: JPEG files with PhotometricInterpretation="RGB" may actually contain YCbCr data
-    // when encoded without color transform (no APP14 marker or APP14 transform=0).
-    // Need to parse JPEG APP14 Adobe marker to detect color transform flag.
-    // See: SC_jpeg_no_color_transform.dcm (no APP14 → magenta) vs SC_jpeg_no_color_transform_2.dcm (APP14 transform=0)
-    let format = if compressed && is_ycbcr {
-        DecodedPixelFormat::Rgb
-    } else if is_ycbcr || photometric_interpretation == "PALETTE COLOR" || bits_allocated == 32 {
+    let format = if is_ycbcr || photometric_interpretation == "PALETTE COLOR" || bits_allocated == 32 {
         DecodedPixelFormat::YcbCr
     } else {
         DecodedPixelFormat::Native
@@ -62,7 +56,6 @@ pub fn extract_pixel_data(
 
     Ok(match format {
         DecodedPixelFormat::YcbCr => DecodedPixelData::YcbCr(data),
-        DecodedPixelFormat::Rgb => DecodedPixelData::Rgb(data),
         DecodedPixelFormat::Native => DecodedPixelData::Native(data),
     })
 }
@@ -70,7 +63,6 @@ pub fn extract_pixel_data(
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum DecodedPixelFormat {
     YcbCr,
-    Rgb,
     Native,
 }
 
