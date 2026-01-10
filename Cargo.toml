@@ -14,7 +14,7 @@ anyhow = "1.0.100"
 clap = { version = "4.5.54", features = ["derive"] }
 dicom = { version = "0.9.0", features = ["pixeldata"] }
 dicom-dictionary-std = { version = "0.9.0", features = ["sop-class"] }
-dicom-pixeldata = { version = "0.9.0", features = ["openjp2", "image"] }
+dicom-pixeldata = { version = "0.9.0", features = ["openjp2", "image", "charls"] }
 image = "0.25.9"
 viuer = {  version="0.11.0", features=["icy_sixel"] }
 

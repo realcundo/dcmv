@@ -21,36 +21,6 @@ impl TransferSyntax {
     pub fn is_big_endian(&self) -> bool {
         self.uid == entries::EXPLICIT_VR_BIG_ENDIAN.uid()
     }
-
-    #[inline(always)]
-    #[must_use]
-    pub fn is_jpeg_compressed(&self) -> bool {
-        self.uid == entries::JPEG_BASELINE.uid()
-            || self.uid == entries::JPEG_EXTENDED.uid()
-            || self.uid == entries::JPEG_LOSSLESS_NON_HIERARCHICAL.uid()
-            || self.uid == entries::JPEG_LOSSLESS_NON_HIERARCHICAL_FIRST_ORDER_PREDICTION.uid()
-            || self.uid.starts_with("1.2.840.10008.1.2.4") // JPEG family fallback
-    }
-
-    #[inline(always)]
-    #[must_use]
-    pub fn is_jpeg2000(&self) -> bool {
-        self.uid == entries::JPEG_2000_IMAGE_COMPRESSION.uid()
-            || self.uid == entries::JPEG_2000_IMAGE_COMPRESSION_LOSSLESS_ONLY.uid()
-            || self.uid.contains("JPEG2000")
-    }
-
-    #[inline(always)]
-    #[must_use]
-    pub fn is_rle_compressed(&self) -> bool {
-        self.uid == entries::RLE_LOSSLESS.uid()
-    }
-
-    #[inline(always)]
-    #[must_use]
-    pub fn is_compressed(&self) -> bool {
-        self.is_jpeg_compressed() || self.is_jpeg2000() || self.is_rle_compressed()
-    }
 }
 
 impl fmt::Display for TransferSyntax {

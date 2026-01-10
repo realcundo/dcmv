@@ -1192,6 +1192,126 @@ mod tests {
     }
 
     #[test]
+    fn test_jpeg_ls_lossless_metadata() {
+        // JPEG-LS Lossless compressed MR image
+        // 64x64, 16-bit grayscale, MONOCHROME2
+        let file_path = Path::new(".test-files/MR_small_jpeg_ls_lossless.dcm");
+
+        // Skip test if file doesn't exist
+        if !file_path.exists() {
+            eprintln!("SKIP: {file_path:?} not found");
+            return;
+        }
+
+        let obj = open_dicom_file(file_path).expect("Failed to open MR_small_jpeg_ls_lossless.dcm");
+        let metadata =
+            extract_dicom_data(&obj).expect("Failed to extract data from MR_small_jpeg_ls_lossless.dcm");
+
+        // Image dimensions
+        assert_eq!(metadata.rows(), 64);
+        assert_eq!(metadata.cols(), 64);
+
+        // Rescale parameters
+        assert_eq!(metadata.rescale_slope(), 1.0);
+        assert_eq!(metadata.rescale_intercept(), 0.0);
+
+        // Photometric interpretation
+        assert_eq!(
+            metadata.photometric_interpretation,
+            PhotometricInterpretation::Monochrome2
+        );
+        assert_eq!(metadata.samples_per_pixel, 1);
+
+        // Bit depth
+        assert_eq!(metadata.bits_allocated, 16);
+        assert_eq!(metadata.bits_stored, 16);
+
+        // Planar configuration (should be None for grayscale)
+        assert!(metadata.planar_configuration.is_none());
+
+        // Pixel data should be present (decoded from JPEG-LS)
+        assert!(!metadata.pixel_data().is_empty());
+
+        // Image conversion should succeed
+        let image =
+            convert_to_image(&metadata).expect("Failed to convert JPEG-LS image to RGB");
+        assert_eq!(image.width(), u32::from(metadata.cols()));
+        assert_eq!(image.height(), u32::from(metadata.rows()));
+
+        // Verify RGB image was created
+        let rgb = image
+            .as_rgb8()
+            .expect("Should be RGB image after grayscale conversion");
+        let width = rgb.width();
+        let height = rgb.height();
+
+        // Sample 10 pixels to verify grayscale conversion (R=G=B)
+        // and to catch decoding regressions
+        let sample_coords = [
+            (width / 4, height / 4),
+            (width / 2, height / 4),
+            (3 * width / 4, height / 4),
+            (width / 4, height / 2),
+            (width / 2, height / 2),
+            (3 * width / 4, height / 2),
+            (width / 4, 3 * height / 4),
+            (width / 2, 3 * height / 4),
+            (3 * width / 4, 3 * height / 4),
+            (width / 2, height / 2 + 10),
+        ];
+
+        for (x, y) in sample_coords {
+            let pixel = rgb.get_pixel(x, y);
+            assert_eq!(pixel[0], pixel[1], "Grayscale should have R=G at ({x},{y})");
+            assert_eq!(pixel[1], pixel[2], "Grayscale should have G=B at ({x},{y})");
+        }
+
+        // Sample 10 specific pixel values to catch decoding regressions
+        let expected_pixels = [
+            ((width / 4, height / 4), 101),
+            ((width / 2, height / 4), 20),
+            ((3 * width / 4, height / 4), 21),
+            ((width / 4, height / 2), 16),
+            ((width / 2, height / 2), 6),
+            ((3 * width / 4, height / 2), 153),
+            ((width / 4, 3 * height / 4), 18),
+            ((width / 2, 3 * height / 4), 4),
+            ((3 * width / 4, 3 * height / 4), 59),
+            ((width / 2, height / 2 + 10), 8),
+        ];
+
+        assert_grayscale_pixels(rgb, "test_jpeg_ls_lossless_metadata", &expected_pixels);
+
+        // Modality
+        assert_eq!(metadata.modality.as_deref(), Some("MR"));
+
+        // SOP class
+        assert!(metadata.sop_class.is_some());
+        let sc = metadata.sop_class.as_ref().unwrap();
+        assert_eq!(sc.uid, "1.2.840.10008.5.1.4.1.1.4"); // MR Image Storage
+        assert_eq!(sc.name, "MR Image Storage");
+
+        // Transfer syntax should be JPEG-LS Lossless
+        assert!(
+            metadata.transfer_syntax.uid.contains("1.2.840.10008.1.2.4.80"),
+            "Transfer syntax UID should be JPEG-LS Lossless, got: {}",
+            metadata.transfer_syntax.uid
+        );
+        assert!(
+            metadata.transfer_syntax.name.contains("JPEG-LS")
+                || metadata.transfer_syntax.name.contains("JPEGLS"),
+            "Transfer syntax name should mention JPEG-LS, got: {}",
+            metadata.transfer_syntax.name
+        );
+
+        // Display trait
+        assert_eq!(
+            metadata.photometric_interpretation.to_string(),
+            "MONOCHROME2"
+        );
+    }
+
+    #[test]
     fn test_non_image_dicomdir_error_message() {
         let file_path = Path::new(".test-files/DICOMDIR.dcm");
         let obj = open_dicom_file(file_path).expect("Failed to open DICOMDIR.dcm");

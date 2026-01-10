@@ -308,6 +308,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
+name = "charls"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "461ee0e8f15d5a4a14c6d79e7cf593a85d28e635e4ce7211c93ac649f03cfb5f"
+dependencies = [
+ "charls-sys",
+]
+
+[[package]]
+name = "charls-sys"
+version = "2.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32bd6962068e45425f68b1ea79fdc87cc848e35018349f2ff38e941f3fca332a"
+dependencies = [
+ "cmake",
+]
+
+[[package]]
 name = "chrono"
 version = "0.4.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -384,6 +402,15 @@ name = "clap_lex"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a1d728cc89cf3aee9ff92b05e62b19ee65a02b5702cff7d5a377e32c6ae29d8d"
+
+[[package]]
+name = "cmake"
+version = "0.1.57"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75443c44cd6b379beb8c5b45d85d0773baf31cce901fe7bb252f4eff3008ef7d"
+dependencies = [
+ "cc",
+]
 
 [[package]]
 name = "color_quant"
@@ -684,6 +711,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b680acd7f349598f94f3291266196ed687150af5ff57691184a493e5cfce090d"
 dependencies = [
  "byteordered",
+ "charls",
  "dicom-core",
  "dicom-encoding",
  "flate2",

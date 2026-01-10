@@ -18,17 +18,17 @@ pub fn extract_pixel_data(
     planar_configuration: Option<u16>,
 ) -> Result<DecodedPixelData> {
     let is_big_endian = transfer_syntax_uid == entries::EXPLICIT_VR_BIG_ENDIAN.uid();
-    let is_compressed = detect_compression(transfer_syntax_uid);
+    let compressed = is_compressed(transfer_syntax_uid);
     let is_ycbcr = photometric_interpretation.contains("YBR");
 
-    if photometric_interpretation == "YBR_FULL" && !is_compressed {
+    if photometric_interpretation == "YBR_FULL" && !compressed {
         return extract_via_dynamic_image(obj);
     }
 
     if photometric_interpretation == "RGB"
         && planar_configuration == Some(1)
         && bits_allocated == 8
-        && !is_compressed
+        && !compressed
     {
         return extract_via_dynamic_image(obj);
     }
@@ -37,12 +37,16 @@ pub fn extract_pixel_data(
         && is_big_endian
         && !is_ycbcr
         && photometric_interpretation == "RGB"
-        && !is_compressed
+        && !compressed
     {
         return extract_via_dynamic_image(obj);
     }
 
-    let format = if is_compressed && is_ycbcr {
+    // TODO: JPEG files with PhotometricInterpretation="RGB" may actually contain YCbCr data
+    // when encoded without color transform (no APP14 marker or APP14 transform=0).
+    // Need to parse JPEG APP14 Adobe marker to detect color transform flag.
+    // See: SC_jpeg_no_color_transform.dcm (no APP14 → magenta) vs SC_jpeg_no_color_transform_2.dcm (APP14 transform=0)
+    let format = if compressed && is_ycbcr {
         DecodedPixelFormat::Rgb
     } else if is_ycbcr || photometric_interpretation == "PALETTE COLOR" || bits_allocated == 32 {
         DecodedPixelFormat::YcbCr
@@ -50,7 +54,7 @@ pub fn extract_pixel_data(
         DecodedPixelFormat::Native
     };
 
-    let data = if !is_compressed && matches!(format, DecodedPixelFormat::YcbCr) {
+    let data = if !compressed && matches!(format, DecodedPixelFormat::YcbCr) {
         extract_raw_pixel_data(obj)?
     } else {
         extract_decoded_pixel_data(obj, bits_allocated)?
@@ -102,11 +106,7 @@ fn extract_via_dynamic_image(
 
 #[inline]
 #[must_use]
-fn detect_compression(uid: &str) -> bool {
-    // TODO: Add JPEG-LS support (JPEG-LS Near Lossless/Lossless)
-    // Transfer syntaxes: 1.2.840.10008.1.2.4.80 (JPEG-LS Lossless), 1.2.840.10008.1.2.4.81 (JPEG-LS)
-    // Failing files: SC_rgb_jls_lossy_sample.dcm, MR_small_jpeg_ls_lossless.dcm,
-    //                JPEGLSNearLossless_08.dcm, JPEGLSNearLossless_16.dcm, SC_rgb_jls_lossy_line.dcm
+fn is_compressed(uid: &str) -> bool {
     uid == entries::JPEG_BASELINE.uid()
         || uid == entries::JPEG_EXTENDED.uid()
         || uid == entries::JPEG_LOSSLESS_NON_HIERARCHICAL.uid()
@@ -114,8 +114,8 @@ fn detect_compression(uid: &str) -> bool {
         || uid == entries::JPEG_2000_IMAGE_COMPRESSION.uid()
         || uid == entries::JPEG_2000_IMAGE_COMPRESSION_LOSSLESS_ONLY.uid()
         || uid == entries::RLE_LOSSLESS.uid()
-        || uid.starts_with("1.2.840.10008.1.2.4") // JPEG family fallback
-        || uid.contains("JPEG2000") // JPEG2000 fallback
+        || uid == "1.2.840.10008.1.2.4.80" // JPEG-LS Lossless
+        || uid == "1.2.840.10008.1.2.4.81" // JPEG-LS Near Lossless
 }
 
 fn extract_raw_pixel_data(
