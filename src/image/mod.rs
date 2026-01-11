@@ -59,7 +59,7 @@ mod tests {
             bits_allocated: 16,
             bits_stored: 16,
             planar_configuration: None,
-            pixel_data_format: DecodedPixelData::Native(vec![0u8; 64 * 64 * 2]),
+            pixel_data_format: DecodedPixelData::Native(vec![0u8; 64 * 64 * 2].into_boxed_slice()),
             patient_name: None,
             patient_id: None,
             patient_birth_date: None,

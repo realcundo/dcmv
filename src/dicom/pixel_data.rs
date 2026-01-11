@@ -5,9 +5,9 @@ use dicom::transfer_syntax::entries;
 
 #[derive(Debug, Clone)]
 pub enum DecodedPixelData {
-    YcbCr(Vec<u8>),
-    Rgb(Vec<u8>),
-    Native(Vec<u8>),
+    YcbCr(Box<[u8]>),
+    Rgb(Box<[u8]>),
+    Native(Box<[u8]>),
 }
 
 pub fn extract_pixel_data(
@@ -84,7 +84,7 @@ fn extract_via_dynamic_image(
         .context("Failed to convert to DynamicImage via to_dynamic_image_with_options")?;
 
     let rgb_bytes = match dynamic_image {
-        ImageRgb8(buffer) => buffer.into_raw(),
+        ImageRgb8(buffer) => buffer.into_raw().into_boxed_slice(),
         _ => {
             anyhow::bail!(
                 "Expected RGB8 image from to_dynamic_image conversion, got {:?}",
@@ -112,7 +112,7 @@ fn is_compressed(uid: &str) -> bool {
 
 fn extract_raw_pixel_data(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
-) -> Result<Vec<u8>> {
+) -> Result<Box<[u8]>> {
     use dicom::dictionary_std::tags;
 
     let pixel_data_obj = obj.get(tags::PIXEL_DATA).context("Missing pixel data")?;
@@ -120,13 +120,14 @@ fn extract_raw_pixel_data(
     Ok(pixel_data_obj
         .to_bytes()
         .context("Failed to get raw pixel data bytes")?
-        .to_vec())
+        .into_owned()
+        .into_boxed_slice())
 }
 
 fn extract_decoded_pixel_data(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
     bits_allocated: u16,
-) -> Result<Vec<u8>> {
+) -> Result<Box<[u8]>> {
     let decoded_pixel_data = obj
         .decode_pixel_data()
         .context("Failed to decode pixel data")?;
@@ -137,13 +138,15 @@ fn extract_decoded_pixel_data(
             .context("Failed to convert 32-bit pixel data")?
             .iter()
             .flat_map(|&v| v.to_le_bytes())
-            .collect();
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
         Ok(data)
     } else if bits_allocated == 16 {
-        Ok(decoded_pixel_data.data().to_vec())
+        Ok(decoded_pixel_data.data().to_vec().into_boxed_slice())
     } else {
         Ok(decoded_pixel_data
             .to_vec::<u8>()
-            .context("Failed to convert pixel data to bytes")?)
+            .context("Failed to convert pixel data to bytes")?
+            .into_boxed_slice())
     }
 }

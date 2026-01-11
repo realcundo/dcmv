@@ -158,7 +158,7 @@ pub fn extract_metadata_tags(
 
     // Note: No pixel data extraction here - metadata only
     // Use an empty placeholder for pixel_data_format
-    let pixel_data_format = DecodedPixelData::Native(Vec::new());
+    let pixel_data_format = DecodedPixelData::Native(Box::<[u8]>::default());
 
     Ok(DicomMetadata {
         dimensions,
