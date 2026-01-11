@@ -13,6 +13,7 @@ path = "src/lib.rs"
 [dependencies]
 anyhow = "1"
 clap = { version = "4.5", features = ["derive"] }
+crossterm = { version = "0.29.0", default-features = false } # make sure it matches transitive crossterm version so that it's not duplicated
 dicom = { version = "0.9", features = ["pixeldata"] }
 dicom-dictionary-std = { version = "0.9", features = ["sop-class"] }
 dicom-pixeldata = { version = "0.9", features = ["image","gdcm"] }

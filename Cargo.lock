@@ -549,6 +549,7 @@ dependencies = [
  "assert_matches",
  "clap",
  "criterion",
+ "crossterm",
  "dicom",
  "dicom-dictionary-std",
  "dicom-pixeldata",

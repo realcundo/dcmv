@@ -1,9 +1,28 @@
 use crate::cli::Args;
 use crate::dicom::DicomMetadata;
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use image::DynamicImage;
 use std::io::{IsTerminal, Write};
-use viuer::{Config as ViuerConfig, print};
+use viuer::{get_kitty_support, is_iterm_supported, print, Config as ViuerConfig};
+use crossterm::{execute, terminal::Clear, terminal::ClearType, cursor::MoveToColumn};
+
+/// Initialize terminal graphics protocol detection at startup.
+///
+/// Forces viuer's terminal capability queries to happen once at startup
+/// rather than during file processing, preventing escape sequences from
+/// appearing randomly. Results are cached internally by viuer's `LazyLock`.
+pub fn init_terminal_display() {
+    // Only query protocols in TTY - skip if piped/redirected
+    if std::io::stdout().is_terminal() {
+        let _kitty = get_kitty_support();
+        let _iterm = is_iterm_supported();
+
+        // Clear line to hide escape sequences, then move cursor to start
+        let mut stdout = std::io::stdout();
+        let _ = execute!(stdout, Clear(ClearType::CurrentLine), MoveToColumn(0));
+        let _ = stdout.flush();
+    }
+}
 
 /// Print a DICOM image to the terminal using Sixel graphics
 ///

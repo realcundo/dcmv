@@ -13,6 +13,10 @@ fn main() {
         return;
     }
 
+    // Initialize terminal detection BEFORE processing any files.
+    // This prevents escape sequence race conditions during file display.
+    dcmv::init_terminal_display();
+
     let multiple_files = args.files.len() > 1;
     let mut any_failed = false;
 
