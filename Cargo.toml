@@ -17,9 +17,11 @@ dicom = { version = "0.9", features = ["pixeldata"] }
 dicom-dictionary-std = { version = "0.9", features = ["sop-class"] }
 dicom-pixeldata = { version = "0.9", features = ["image","gdcm"] }
 image = "0.25"
+thiserror = "2"
 viuer = {  version="0.11", features=["icy_sixel"] }
 
 [dev-dependencies]
+approx = "0.5"
 assert_matches = "1.5"
 criterion = "0.8"
 

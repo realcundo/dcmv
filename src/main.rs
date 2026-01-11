@@ -67,14 +67,14 @@ fn process_file(file_path: &std::path::Path, args: &Args) -> Result<(), ProcessE
     // Stage 4: Convert to image
     let image = image::convert_to_image(&metadata)
         .map_err(|e| ProcessError::ConversionFailed {
-            metadata: metadata.clone(),
+            metadata: Box::new(metadata.clone()),
             error: e.to_string(),
         })?;
 
     // Stage 5: Display
     display::print_image(&image, &metadata, args)
         .map_err(|e| ProcessError::DisplayFailed {
-            metadata,
+            metadata: Box::new(metadata),
             error: e.to_string(),
         })?;
 

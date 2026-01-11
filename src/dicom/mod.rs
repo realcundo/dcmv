@@ -188,6 +188,7 @@ pub fn extract_metadata_tags(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use approx::assert_relative_eq;
     use crate::image::convert_to_image;
     use std::path::Path;
 
@@ -206,8 +207,8 @@ mod tests {
         assert_eq!(metadata.cols(), 1991);
 
         // Rescale parameters
-        assert_eq!(metadata.rescale_slope(), 1.0);
-        assert_eq!(metadata.rescale_intercept(), 0.0);
+        assert_relative_eq!(metadata.rescale_slope(), 1.0);
+        assert_relative_eq!(metadata.rescale_intercept(), 0.0);
 
         // Photometric interpretation
         assert_eq!(
@@ -312,8 +313,8 @@ mod tests {
         assert_eq!(metadata.cols(), 160);
 
         // Rescale parameters
-        assert_eq!(metadata.rescale_slope(), 1.0);
-        assert_eq!(metadata.rescale_intercept(), 0.0);
+        assert_relative_eq!(metadata.rescale_slope(), 1.0);
+        assert_relative_eq!(metadata.rescale_intercept(), 0.0);
 
         // Photometric interpretation (RGB)
         assert_eq!(
@@ -392,8 +393,8 @@ mod tests {
         assert_eq!(metadata.cols(), 3016);
 
         // Rescale parameters
-        assert_eq!(metadata.rescale_slope(), 1.0);
-        assert_eq!(metadata.rescale_intercept(), 0.0);
+        assert_relative_eq!(metadata.rescale_slope(), 1.0);
+        assert_relative_eq!(metadata.rescale_intercept(), 0.0);
 
         // Photometric interpretation
         assert_eq!(
@@ -505,8 +506,8 @@ mod tests {
         assert_eq!(metadata.bits_stored, 16);
 
         // Rescale parameters (defaults)
-        assert_eq!(metadata.rescale_slope(), 1.0);
-        assert_eq!(metadata.rescale_intercept(), 0.0);
+        assert_relative_eq!(metadata.rescale_slope(), 1.0);
+        assert_relative_eq!(metadata.rescale_intercept(), 0.0);
 
         // Photometric interpretation (grayscale)
         assert_eq!(
@@ -816,8 +817,8 @@ mod tests {
         assert_eq!(metadata.cols(), 64);
 
         // Rescale parameters
-        assert_eq!(metadata.rescale_slope(), 1.0);
-        assert_eq!(metadata.rescale_intercept(), 0.0);
+        assert_relative_eq!(metadata.rescale_slope(), 1.0);
+        assert_relative_eq!(metadata.rescale_intercept(), 0.0);
 
         // Photometric interpretation
         assert_eq!(
@@ -935,8 +936,8 @@ mod tests {
         assert_eq!(metadata.cols(), 256);
 
         // Rescale parameters
-        assert_eq!(metadata.rescale_slope(), 1.0);
-        assert_eq!(metadata.rescale_intercept(), 0.0);
+        assert_relative_eq!(metadata.rescale_slope(), 1.0);
+        assert_relative_eq!(metadata.rescale_intercept(), 0.0);
 
         // Photometric interpretation
         assert_eq!(
@@ -1286,8 +1287,8 @@ mod tests {
         assert_eq!(metadata.cols(), 64);
 
         // Rescale parameters
-        assert_eq!(metadata.rescale_slope(), 1.0);
-        assert_eq!(metadata.rescale_intercept(), 0.0);
+        assert_relative_eq!(metadata.rescale_slope(), 1.0);
+        assert_relative_eq!(metadata.rescale_intercept(), 0.0);
 
         // Photometric interpretation
         assert_eq!(

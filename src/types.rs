@@ -16,7 +16,7 @@ impl TransferSyntax {
         Self { uid, name }
     }
 
-    #[inline(always)]
+    #[inline]
     #[must_use]
     pub fn is_big_endian(&self) -> bool {
         self.uid == entries::EXPLICIT_VR_BIG_ENDIAN.uid()
@@ -61,13 +61,13 @@ impl Dimensions {
         Self { rows, cols }
     }
 
-    #[inline(always)]
+    #[inline]
     #[must_use]
     pub fn pixel_count(&self) -> usize {
         usize::from(self.rows) * usize::from(self.cols)
     }
 
-    #[inline(always)]
+    #[inline]
     #[must_use]
     pub fn is_valid(&self) -> bool {
         self.rows > 0 && self.cols > 0
@@ -103,6 +103,7 @@ impl RescaleParams {
 
     #[inline(always)]
     #[must_use]
+    // Hot path: called for every pixel during conversion
     pub fn apply(&self, pixel: u16) -> f64 {
         f64::from(pixel).mul_add(self.slope, self.intercept)
     }
@@ -134,13 +135,13 @@ impl PixelAspectRatio {
         }
     }
 
-    #[inline(always)]
+    #[inline]
     #[must_use]
     pub fn ratio(&self) -> f64 {
         self.vertical / self.horizontal
     }
 
-    #[inline(always)]
+    #[inline]
     #[must_use]
     pub fn is_square(&self) -> bool {
         (self.vertical - self.horizontal).abs() < f64::EPSILON

@@ -22,15 +22,14 @@ pub fn print_metadata(metadata: &DicomMetadata) {
     print_transfer_syntax_info(metadata);
 
     let thickness_display = metadata.slice_thickness
-        .map(|t| t.to_string())
-        .unwrap_or_else(|| UNKNOWN_TAG_VALUE.to_string());
+        .map_or_else(|| UNKNOWN_TAG_VALUE.to_string(), |t| t.to_string());
     println!("{:20}: {}", "Slice Thickness", thickness_display);
 
     println!();
 }
 
 fn print_field(name: &str, value: Option<&String>) {
-    let display_value = value.map(|s| s.as_str()).unwrap_or(UNKNOWN_TAG_VALUE);
+    let display_value = value.map_or(UNKNOWN_TAG_VALUE, String::as_str);
     println!("{name:20}: {display_value}");
 }
 
@@ -53,8 +52,7 @@ fn print_pixel_aspect_ratio(metadata: &DicomMetadata) {
 fn print_sop_class_info(metadata: &DicomMetadata) {
     let display_value = metadata.sop_class
         .as_ref()
-        .map(|sc| sc.to_string())
-        .unwrap_or_else(|| UNKNOWN_TAG_VALUE.to_string());
+        .map_or_else(|| UNKNOWN_TAG_VALUE.to_string(), ToString::to_string);
     println!("{:20}: {}", "SOP Class UID", display_value);
 }
 

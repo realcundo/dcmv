@@ -32,32 +32,32 @@ pub struct DicomMetadata {
 }
 
 impl DicomMetadata {
-    #[inline(always)]
+    #[inline]
     #[must_use]
     pub fn rows(&self) -> u16 {
         self.dimensions.rows
     }
 
-    #[inline(always)]
+    #[inline]
     #[must_use]
     pub fn cols(&self) -> u16 {
         self.dimensions.cols
     }
 
-    #[inline(always)]
+    #[inline]
     #[must_use]
     pub fn rescale_slope(&self) -> f64 {
         self.rescale.slope
     }
 
-    #[inline(always)]
+    #[inline]
     #[must_use]
     pub fn rescale_intercept(&self) -> f64 {
         self.rescale.intercept
     }
 
     /// Returns true if this DICOM file uses big-endian byte order
-    #[inline(always)]
+    #[inline]
     #[must_use]
     #[allow(deprecated)] // Explicit VR Big Endian is retired but still in use
     pub fn is_big_endian(&self) -> bool {
@@ -66,6 +66,7 @@ impl DicomMetadata {
 
     #[inline(always)]
     #[must_use]
+    // Hot path: called once per pixel during conversion
     pub fn pixel_data(&self) -> &[u8] {
         match &self.pixel_data_format {
             DecodedPixelData::YcbCr(data)
@@ -74,7 +75,7 @@ impl DicomMetadata {
         }
     }
 
-    #[inline(always)]
+    #[inline]
     #[must_use]
     pub fn is_already_rgb(&self) -> bool {
         matches!(self.pixel_data_format, DecodedPixelData::Rgb(_))
