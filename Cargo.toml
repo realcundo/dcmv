@@ -11,16 +11,16 @@ name = "dcmv"
 path = "src/lib.rs"
 
 [dependencies]
-anyhow = "1.0.100"
-clap = { version = "4.5.54", features = ["derive"] }
-dicom = { version = "0.9.0", features = ["pixeldata"] }
-dicom-dictionary-std = { version = "0.9.0", features = ["sop-class"] }
-dicom-pixeldata = { version = "0.9.0", features = ["openjp2", "image", "gdcm"] }
-image = "0.25.9"
-viuer = {  version="0.11.0", features=["icy_sixel"] }
+anyhow = "1"
+clap = { version = "4.5", features = ["derive"] }
+dicom = { version = "0.9", features = ["pixeldata"] }
+dicom-dictionary-std = { version = "0.9", features = ["sop-class"] }
+dicom-pixeldata = { version = "0.9", features = ["image","gdcm"] }
+image = "0.25"
+viuer = {  version="0.11", features=["icy_sixel"] }
 
 [dev-dependencies]
-criterion = "0.8.1"
+criterion = "0.8"
 
 [[bench]]
 name = "dicom_bench"
