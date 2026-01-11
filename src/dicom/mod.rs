@@ -1,5 +1,6 @@
 //! DICOM file parsing and metadata extraction
 
+mod error;
 mod metadata;
 mod parser;
 mod photometric;
@@ -7,6 +8,7 @@ mod pixel_data;
 mod validation;
 
 // Re-export public API
+pub use error::ProcessError;
 pub use metadata::DicomMetadata;
 pub use photometric::PhotometricInterpretation;
 pub use pixel_data::DecodedPixelData;
@@ -97,6 +99,78 @@ pub fn extract_dicom_data(
         bits_stored,
         planar_configuration,
         pixel_data_format: pixel_data,
+        patient_name,
+        patient_id,
+        patient_birth_date,
+        accession_number,
+        study_date,
+        study_description,
+        modality,
+        series_description,
+        slice_thickness,
+        sop_class,
+        transfer_syntax,
+    })
+}
+
+/// Extract metadata tags from a DICOM object, even if pixel data decoding fails
+///
+/// This is used for verbose error display - we can show available metadata
+/// even when pixel data cannot be decoded.
+///
+/// # Errors
+///
+/// Returns an error if required DICOM tags for metadata extraction are missing.
+/// Note: This function does NOT attempt pixel data decoding.
+pub fn extract_metadata_tags(
+    obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
+) -> Result<DicomMetadata> {
+    use dicom::dictionary_std::tags;
+
+    let error_context: parser::ErrorContext = obj.into();
+    let dimensions = parser::extract_dimensions(obj, &error_context)?;
+
+    let sop_class = error_context.sop_class;
+    let rescale = parser::extract_rescale_params(obj);
+    let pixel_aspect_ratio = parser::extract_pixel_aspect_ratio(obj);
+    let number_of_frames = parser::extract_number_of_frames(obj);
+    let samples_per_pixel = parser::extract_samples_per_pixel(obj);
+    let (bits_allocated, bits_stored) = parser::extract_bit_depth(obj);
+    let planar_configuration = parser::extract_planar_configuration(obj);
+    let transfer_syntax = parser::extract_transfer_syntax(obj);
+
+    let (patient_name, patient_id, patient_birth_date) = parser::extract_patient_metadata(obj);
+    let (accession_number, study_date, study_description, modality) =
+        parser::extract_study_metadata(obj);
+    let (series_description, slice_thickness) = parser::extract_series_metadata(obj);
+
+    let photometric_interpretation = obj
+        .get(tags::PHOTOMETRIC_INTERPRETATION)
+        .and_then(|e| e.value().to_str().ok())
+        .map(|s| {
+            let s_str = s.as_ref();
+            PhotometricInterpretation::from_str(s_str)
+                .map_err(|()| anyhow::anyhow!("Unknown photometric interpretation: {s_str}"))
+        })
+        .transpose()
+        .context("Failed to parse photometric interpretation")?
+        .unwrap_or(PhotometricInterpretation::Monochrome2);
+
+    // Note: No pixel data extraction here - metadata only
+    // Use an empty placeholder for pixel_data_format
+    let pixel_data_format = DecodedPixelData::Native(Vec::new());
+
+    Ok(DicomMetadata {
+        dimensions,
+        rescale,
+        pixel_aspect_ratio,
+        number_of_frames,
+        photometric_interpretation,
+        samples_per_pixel,
+        bits_allocated,
+        bits_stored,
+        planar_configuration,
+        pixel_data_format,
         patient_name,
         patient_id,
         patient_birth_date,
@@ -1322,5 +1396,31 @@ mod tests {
         eprintln!("DICOMDIR error: {err}");
         // DICOMDIR might not have SOP Class or Modality, check for generic error
         assert!(err.contains("Missing or invalid Rows tag"));
+    }
+
+    #[test]
+    fn test_extract_metadata_tags_on_jpeg2000() {
+        // Test that extract_metadata_tags() works even when pixel data decoding fails
+        // examples_jpeg2k.dcm has JPEG2000 compressed pixel data that gdcm can't decode
+        let file_path = Path::new(".test-files/examples_jpeg2k.dcm");
+        assert!(file_path.exists());
+
+        // Opening the file should succeed (it's a valid DICOM)
+        let obj = open_dicom_file(file_path).expect("Failed to open JPEG2000 file");
+
+        // Full extraction should fail (pixel decode fails)
+        let full_result = extract_dicom_data(&obj);
+        assert!(full_result.is_err(), "extract_dicom_data should fail for JPEG2000");
+
+        // Partial metadata extraction should succeed
+        let metadata = extract_metadata_tags(&obj)
+            .expect("extract_metadata_tags should succeed even when pixel decode fails");
+
+        // Verify key metadata fields are extracted correctly
+        assert_eq!(metadata.rows(), 480);
+        assert_eq!(metadata.cols(), 640);
+        assert_eq!(metadata.samples_per_pixel, 3);
+        assert_eq!(metadata.bits_allocated, 8);
+        assert_eq!(metadata.bits_stored, 8);
     }
 }

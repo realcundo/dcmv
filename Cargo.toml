@@ -20,6 +20,7 @@ image = "0.25"
 viuer = {  version="0.11", features=["icy_sixel"] }
 
 [dev-dependencies]
+assert_matches = "1.5"
 criterion = "0.8"
 
 [[bench]]
