@@ -61,7 +61,7 @@ pub fn convert_grayscale(metadata: &DicomMetadata) -> Result<DynamicImage> {
 fn extract_grayscale_pixels(metadata: &DicomMetadata) -> Result<Vec<u16>> {
     let pixel_data = metadata.pixel_data();
 
-    match metadata.bits_allocated {
+    match metadata.bits_allocated() {
         8 => Ok(pixel_data.iter().map(|&b| u16::from(b)).collect()),
         16 => {
             if !pixel_data.len().is_multiple_of(2) {
@@ -97,7 +97,7 @@ fn extract_grayscale_pixels(metadata: &DicomMetadata) -> Result<Vec<u16>> {
         }
         _ => anyhow::bail!(
             "Unsupported bits allocated for grayscale: {}",
-            metadata.bits_allocated
+            metadata.bits_allocated()
         ),
     }
 }

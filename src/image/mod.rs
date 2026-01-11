@@ -48,27 +48,21 @@ mod tests {
         // Test that grayscale photometric interpretations dispatch correctly
         // This is a compile-time check that the module structure is correct
         use crate::dicom::DecodedPixelData;
+        use crate::types::{BitDepth, PatientInfo, SeriesInfo, StudyInfo};
 
         let metadata = DicomMetadata {
             dimensions: crate::types::Dimensions::new(64, 64),
-            rescale: crate::types::RescaleParams::new(1.0, 0.0),
-            pixel_aspect_ratio: None,
-            number_of_frames: 1,
+            bit_depth: BitDepth::new(16, 16),
             photometric_interpretation: PhotometricInterpretation::Monochrome2,
             samples_per_pixel: 1,
-            bits_allocated: 16,
-            bits_stored: 16,
             planar_configuration: None,
+            number_of_frames: 1,
+            pixel_aspect_ratio: None,
             pixel_data_format: DecodedPixelData::Native(vec![0u8; 64 * 64 * 2].into_boxed_slice()),
-            patient_name: None,
-            patient_id: None,
-            patient_birth_date: None,
-            accession_number: None,
-            study_date: None,
-            study_description: None,
-            modality: None,
-            series_description: None,
-            slice_thickness: None,
+            rescale: crate::types::RescaleParams::new(1.0, 0.0),
+            patient: PatientInfo::new(),
+            study: StudyInfo::new(),
+            series: SeriesInfo::new(),
             sop_class: None,
             transfer_syntax: crate::types::TransferSyntax::new(
                 "1.2.840.10008.1.2".to_string(),

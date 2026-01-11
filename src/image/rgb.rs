@@ -22,7 +22,7 @@ pub fn convert_rgb(metadata: &DicomMetadata) -> Result<DynamicImage> {
 }
 
 fn extract_rgb_pixels(metadata: &DicomMetadata) -> Result<Vec<u8>> {
-    match metadata.bits_allocated {
+    match metadata.bits_allocated() {
         8 => extract_rgb_8bit(metadata),
         32 => extract_rgb_32bit(metadata),
         // TODO: Add 16-bit RGB support
@@ -30,13 +30,13 @@ fn extract_rgb_pixels(metadata: &DicomMetadata) -> Result<Vec<u8>> {
         // Need to normalize 16-bit RGB values to 8-bit (similar to 32-bit implementation)
         _ => anyhow::bail!(
             "Unsupported bits allocated for RGB: {} (expected 8 or 32)",
-            metadata.bits_allocated
+            metadata.bits_allocated()
         ),
     }
 }
 
 fn extract_rgb_8bit(metadata: &DicomMetadata) -> Result<Vec<u8>> {
-    let bytes_per_sample = (metadata.bits_allocated / 8) as usize;
+    let bytes_per_sample = (metadata.bits_allocated() / 8) as usize;
     let pixels_per_frame = metadata.rows() as usize * metadata.cols() as usize;
     let expected_size = pixels_per_frame * 3 * bytes_per_sample;
 
@@ -62,7 +62,7 @@ fn extract_rgb_8bit(metadata: &DicomMetadata) -> Result<Vec<u8>> {
 fn extract_rgb_32bit(metadata: &DicomMetadata) -> Result<Vec<u8>> {
     let pixel_count = metadata.rows() as usize * metadata.cols() as usize;
 
-    let bytes_per_sample = (metadata.bits_allocated / 8) as usize;
+    let bytes_per_sample = (metadata.bits_allocated() / 8) as usize;
     let expected_size = pixel_count * 3 * bytes_per_sample;
 
     let data = metadata.pixel_data();

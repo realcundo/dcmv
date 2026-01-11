@@ -1,4 +1,4 @@
-use crate::types::{Dimensions, PixelAspectRatio, RescaleParams, SOPClass, TransferSyntax};
+use crate::types::{BitDepth, Dimensions, PatientInfo, PixelAspectRatio, RescaleParams, SeriesInfo, SOPClass, StudyInfo, TransferSyntax};
 use anyhow::{Context, Result};
 use dicom::core::dictionary::UidDictionary;
 use dicom::encoding::TransferSyntaxIndex;
@@ -88,6 +88,9 @@ pub fn extract_rescale_params(
 ) -> RescaleParams {
     use dicom::dictionary_std::tags;
 
+    // RESCALE_SLOPE and RESCALE_INTERCEPT are optional DICOM tags
+    // They are primarily used for CT/PET scans to convert pixel values to Hounsfield units
+    // For other modalities (CR, MR, etc.), these tags may not be present
     let slope = obj
         .get(tags::RESCALE_SLOPE)
         .and_then(|e| e.to_float64().ok())
@@ -140,20 +143,21 @@ pub fn extract_samples_per_pixel(
 
 pub fn extract_bit_depth(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
-) -> (u16, u16) {
+    error_context: &ErrorContext,
+) -> Result<BitDepth, anyhow::Error> {
     use dicom::dictionary_std::tags;
 
-    let bits_allocated = obj
+    let allocated = obj
         .get(tags::BITS_ALLOCATED)
         .and_then(|e| e.to_int::<u16>().ok())
-        .unwrap_or(16);
+        .ok_or_else(|| anyhow::anyhow!(error_context.format_error("Bits Allocated")))?;
 
-    let bits_stored = obj
+    let stored = obj
         .get(tags::BITS_STORED)
         .and_then(|e| e.to_int::<u16>().ok())
-        .unwrap_or(bits_allocated);
+        .ok_or_else(|| anyhow::anyhow!(error_context.format_error("Bits Stored")))?;
 
-    (bits_allocated, bits_stored)
+    Ok(BitDepth::new(allocated, stored))
 }
 
 #[inline]
@@ -194,37 +198,32 @@ pub fn extract_sop_class(
         })
 }
 
-pub fn extract_patient_metadata(
+pub fn extract_patient_info(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
-) -> (Option<String>, Option<String>, Option<String>) {
+) -> PatientInfo {
     use dicom::dictionary_std::tags;
 
-    let patient_name = obj
+    let name = obj
         .get(tags::PATIENT_NAME)
         .and_then(|e| e.value().to_str().ok())
         .map(|s| s.to_string());
 
-    let patient_id = obj
+    let id = obj
         .get(tags::PATIENT_ID)
         .and_then(|e| e.value().to_str().ok())
         .map(|s| s.to_string());
 
-    let patient_birth_date = obj
+    let birth_date = obj
         .get(tags::PATIENT_BIRTH_DATE)
         .and_then(|e| e.value().to_str().ok())
         .map(|s| s.to_string());
 
-    (patient_name, patient_id, patient_birth_date)
+    PatientInfo { name, id, birth_date }
 }
 
-pub fn extract_study_metadata(
+pub fn extract_study_info(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
-) -> (
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-) {
+) -> StudyInfo {
     use dicom::dictionary_std::tags;
 
     let accession_number = obj
@@ -232,12 +231,12 @@ pub fn extract_study_metadata(
         .and_then(|e| e.value().to_str().ok())
         .map(|s| s.to_string());
 
-    let study_date = obj
+    let date = obj
         .get(tags::STUDY_DATE)
         .and_then(|e| e.value().to_str().ok())
         .map(|s| s.to_string());
 
-    let study_description = obj
+    let description = obj
         .get(tags::STUDY_DESCRIPTION)
         .and_then(|e| e.value().to_str().ok())
         .map(|s| s.to_string());
@@ -247,15 +246,20 @@ pub fn extract_study_metadata(
         .and_then(|e| e.value().to_str().ok())
         .map(|s| s.to_string());
 
-    (accession_number, study_date, study_description, modality)
+    StudyInfo {
+        accession_number,
+        date,
+        description,
+        modality,
+    }
 }
 
-pub fn extract_series_metadata(
+pub fn extract_series_info(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
-) -> (Option<String>, Option<f64>) {
+) -> SeriesInfo {
     use dicom::dictionary_std::tags;
 
-    let series_description = obj
+    let description = obj
         .get(tags::SERIES_DESCRIPTION)
         .and_then(|e| e.value().to_str().ok())
         .map(|s| s.to_string());
@@ -264,5 +268,8 @@ pub fn extract_series_metadata(
         .get(tags::SLICE_THICKNESS)
         .and_then(|e| e.to_float64().ok());
 
-    (series_description, slice_thickness)
+    SeriesInfo {
+        description,
+        slice_thickness,
+    }
 }

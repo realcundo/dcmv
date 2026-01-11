@@ -7,24 +7,24 @@ use thiserror::Error;
 pub enum ProcessError {
     /// File is not a valid DICOM - no metadata available
     #[error("{0}")]
-    NotADicomFile(String),
+    NotADicomFile(#[from] anyhow::Error),
 
     /// Valid DICOM file but extraction failed - no metadata available
     #[error("{0}")]
-    ExtractionFailed(String),
+    ExtractionFailed(anyhow::Error),
 
     /// Metadata extracted successfully, but image conversion failed
-    #[error("{error}")]
+    #[error("Image conversion failed: {error}")]
     ConversionFailed {
         metadata: Box<DicomMetadata>,
-        error: String,
+        error: anyhow::Error,
     },
 
     /// Image ready but display failed
-    #[error("{error}")]
+    #[error("Display failed: {error}")]
     DisplayFailed {
         metadata: Box<DicomMetadata>,
-        error: String,
+        error: anyhow::Error,
     },
 }
 

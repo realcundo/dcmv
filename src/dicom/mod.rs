@@ -14,6 +14,7 @@ pub use photometric::PhotometricInterpretation;
 pub use pixel_data::DecodedPixelData;
 
 use anyhow::{Context, Result};
+use crate::types::{BitDepth, Dimensions, PatientInfo, PixelAspectRatio, RescaleParams, SeriesInfo, SOPClass, StudyInfo, TransferSyntax};
 use dicom::object::{FileDicomObject, InMemDicomObject, StandardDataDictionary, open_file};
 use std::path::Path;
 use std::str::FromStr;
@@ -30,6 +31,77 @@ pub fn open_dicom_file(
         .with_context(|| format!("Failed to open DICOM file: {}", file_path.display()))
 }
 
+/// Common metadata extracted from a DICOM object
+///
+/// This struct contains all the metadata that is shared between
+/// `extract_dicom_data` and `extract_metadata_tags`, avoiding duplication.
+struct CommonMetadata {
+    dimensions: Dimensions,
+    bit_depth: BitDepth,
+    photometric_interpretation: PhotometricInterpretation,
+    samples_per_pixel: u16,
+    planar_configuration: Option<u16>,
+    number_of_frames: u32,
+    pixel_aspect_ratio: Option<PixelAspectRatio>,
+    rescale: RescaleParams,
+    patient: PatientInfo,
+    study: StudyInfo,
+    series: SeriesInfo,
+    sop_class: Option<SOPClass>,
+    transfer_syntax: TransferSyntax,
+}
+
+/// Extract common metadata from a DICOM object
+///
+/// This helper function avoids duplication between `extract_dicom_data` and
+/// `extract_metadata_tags` by extracting all metadata except pixel data.
+fn extract_common_metadata(
+    obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
+) -> Result<CommonMetadata> {
+    use dicom::dictionary_std::tags;
+
+    let error_context: parser::ErrorContext = obj.into();
+    let dimensions = parser::extract_dimensions(obj, &error_context)?;
+
+    let rescale = parser::extract_rescale_params(obj);
+    let pixel_aspect_ratio = parser::extract_pixel_aspect_ratio(obj);
+    let number_of_frames = parser::extract_number_of_frames(obj);
+    let samples_per_pixel = parser::extract_samples_per_pixel(obj);
+    let bit_depth = parser::extract_bit_depth(obj, &error_context)?;
+    let planar_configuration = parser::extract_planar_configuration(obj);
+    let transfer_syntax = parser::extract_transfer_syntax(obj);
+
+    let patient = parser::extract_patient_info(obj);
+    let study = parser::extract_study_info(obj);
+    let series = parser::extract_series_info(obj);
+
+    let photometric_interpretation = obj
+        .get(tags::PHOTOMETRIC_INTERPRETATION)
+        .and_then(|e| e.value().to_str().ok())
+        .ok_or_else(|| anyhow::anyhow!(error_context.format_error("Photometric Interpretation")))
+        .and_then(|s| {
+            let s_str = s.as_ref();
+            PhotometricInterpretation::from_str(s_str)
+                .map_err(|()| anyhow::anyhow!("Unknown photometric interpretation: {s_str}"))
+        })?;
+
+    Ok(CommonMetadata {
+        dimensions,
+        bit_depth,
+        photometric_interpretation,
+        samples_per_pixel,
+        planar_configuration,
+        number_of_frames,
+        pixel_aspect_ratio,
+        rescale,
+        patient,
+        study,
+        series,
+        sop_class: error_context.sop_class,
+        transfer_syntax,
+    })
+}
+
 /// Extract metadata and pixel data from a DICOM object
 ///
 /// # Errors
@@ -39,77 +111,38 @@ pub fn open_dicom_file(
 pub fn extract_dicom_data(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
 ) -> Result<DicomMetadata> {
-    use dicom::dictionary_std::tags;
-
-    // Build error context early using Into/From trait
-    let error_context: parser::ErrorContext = obj.into();
-    let dimensions = parser::extract_dimensions(obj, &error_context)?;
-
-    // Extract SOP class from error context for use in DicomMetadata
-    let sop_class = error_context.sop_class;
-
-    let rescale = parser::extract_rescale_params(obj);
-    let pixel_aspect_ratio = parser::extract_pixel_aspect_ratio(obj);
-    let number_of_frames = parser::extract_number_of_frames(obj);
-    let samples_per_pixel = parser::extract_samples_per_pixel(obj);
-    let (bits_allocated, bits_stored) = parser::extract_bit_depth(obj);
-    let planar_configuration = parser::extract_planar_configuration(obj);
-    let transfer_syntax = parser::extract_transfer_syntax(obj);
-
-    let (patient_name, patient_id, patient_birth_date) = parser::extract_patient_metadata(obj);
-    let (accession_number, study_date, study_description, modality) =
-        parser::extract_study_metadata(obj);
-    let (series_description, slice_thickness) = parser::extract_series_metadata(obj);
-
-    let photometric_interpretation = obj
-        .get(tags::PHOTOMETRIC_INTERPRETATION)
-        .and_then(|e| e.value().to_str().ok())
-        .map(|s| {
-            let s_str = s.as_ref();
-            PhotometricInterpretation::from_str(s_str)
-                .map_err(|()| anyhow::anyhow!("Unknown photometric interpretation: {s_str}"))
-        })
-        .transpose()
-        .context("Failed to parse photometric interpretation")?
-        .unwrap_or(PhotometricInterpretation::Monochrome2); // Default to Monochrome2
+    let common = extract_common_metadata(obj)?;
 
     let pixel_data = pixel_data::extract_pixel_data(
         obj,
-        bits_allocated,
-        &photometric_interpretation.to_string(),
-        &transfer_syntax.uid,
-        planar_configuration,
+        common.bit_depth.allocated,
+        &common.photometric_interpretation.to_string(),
+        &common.transfer_syntax.uid,
+        common.planar_configuration,
     )?;
 
     validation::validate_metadata(
-        &photometric_interpretation,
-        samples_per_pixel,
-        planar_configuration,
-        bits_allocated,
+        &common.photometric_interpretation,
+        common.samples_per_pixel,
+        common.planar_configuration,
+        common.bit_depth.allocated,
     )?;
 
     Ok(DicomMetadata {
-        dimensions,
-        rescale,
-        pixel_aspect_ratio,
-        number_of_frames,
-        photometric_interpretation,
-        samples_per_pixel,
-        bits_allocated,
-        bits_stored,
-        planar_configuration,
+        dimensions: common.dimensions,
+        bit_depth: common.bit_depth,
+        photometric_interpretation: common.photometric_interpretation,
+        samples_per_pixel: common.samples_per_pixel,
+        planar_configuration: common.planar_configuration,
+        number_of_frames: common.number_of_frames,
+        pixel_aspect_ratio: common.pixel_aspect_ratio,
         pixel_data_format: pixel_data,
-        patient_name,
-        patient_id,
-        patient_birth_date,
-        accession_number,
-        study_date,
-        study_description,
-        modality,
-        series_description,
-        slice_thickness,
-        sop_class,
-        transfer_syntax,
+        rescale: common.rescale,
+        patient: common.patient,
+        study: common.study,
+        series: common.series,
+        sop_class: common.sop_class,
+        transfer_syntax: common.transfer_syntax,
     })
 }
 
@@ -125,63 +158,27 @@ pub fn extract_dicom_data(
 pub fn extract_metadata_tags(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
 ) -> Result<DicomMetadata> {
-    use dicom::dictionary_std::tags;
-
-    let error_context: parser::ErrorContext = obj.into();
-    let dimensions = parser::extract_dimensions(obj, &error_context)?;
-
-    let sop_class = error_context.sop_class;
-    let rescale = parser::extract_rescale_params(obj);
-    let pixel_aspect_ratio = parser::extract_pixel_aspect_ratio(obj);
-    let number_of_frames = parser::extract_number_of_frames(obj);
-    let samples_per_pixel = parser::extract_samples_per_pixel(obj);
-    let (bits_allocated, bits_stored) = parser::extract_bit_depth(obj);
-    let planar_configuration = parser::extract_planar_configuration(obj);
-    let transfer_syntax = parser::extract_transfer_syntax(obj);
-
-    let (patient_name, patient_id, patient_birth_date) = parser::extract_patient_metadata(obj);
-    let (accession_number, study_date, study_description, modality) =
-        parser::extract_study_metadata(obj);
-    let (series_description, slice_thickness) = parser::extract_series_metadata(obj);
-
-    let photometric_interpretation = obj
-        .get(tags::PHOTOMETRIC_INTERPRETATION)
-        .and_then(|e| e.value().to_str().ok())
-        .map(|s| {
-            let s_str = s.as_ref();
-            PhotometricInterpretation::from_str(s_str)
-                .map_err(|()| anyhow::anyhow!("Unknown photometric interpretation: {s_str}"))
-        })
-        .transpose()
-        .context("Failed to parse photometric interpretation")?
-        .unwrap_or(PhotometricInterpretation::Monochrome2);
+    let common = extract_common_metadata(obj)?;
 
     // Note: No pixel data extraction here - metadata only
     // Use an empty placeholder for pixel_data_format
     let pixel_data_format = DecodedPixelData::Native(Box::<[u8]>::default());
 
     Ok(DicomMetadata {
-        dimensions,
-        rescale,
-        pixel_aspect_ratio,
-        number_of_frames,
-        photometric_interpretation,
-        samples_per_pixel,
-        bits_allocated,
-        bits_stored,
-        planar_configuration,
+        dimensions: common.dimensions,
+        bit_depth: common.bit_depth,
+        photometric_interpretation: common.photometric_interpretation,
+        samples_per_pixel: common.samples_per_pixel,
+        planar_configuration: common.planar_configuration,
+        number_of_frames: common.number_of_frames,
+        pixel_aspect_ratio: common.pixel_aspect_ratio,
         pixel_data_format,
-        patient_name,
-        patient_id,
-        patient_birth_date,
-        accession_number,
-        study_date,
-        study_description,
-        modality,
-        series_description,
-        slice_thickness,
-        sop_class,
-        transfer_syntax,
+        rescale: common.rescale,
+        patient: common.patient,
+        study: common.study,
+        series: common.series,
+        sop_class: common.sop_class,
+        transfer_syntax: common.transfer_syntax,
     })
 }
 
@@ -218,8 +215,8 @@ mod tests {
         assert_eq!(metadata.samples_per_pixel, 1);
 
         // Bit depth
-        assert_eq!(metadata.bits_allocated, 16);
-        assert_eq!(metadata.bits_stored, 15);
+        assert_eq!(metadata.bits_allocated(), 16);
+        assert_eq!(metadata.bits_stored(), 15);
 
         // Planar configuration (should be None for grayscale)
         assert!(metadata.planar_configuration.is_none());
@@ -277,13 +274,13 @@ mod tests {
         assert_grayscale_pixels(rgb, "test_file1_metadata", &expected_pixels);
 
         // Display metadata - presence checks only (no personal data)
-        assert!(metadata.patient_name.is_some());
-        assert!(metadata.patient_id.is_some());
-        assert!(metadata.patient_birth_date.is_some());
-        assert!(metadata.accession_number.is_some());
-        assert!(metadata.study_date.is_some());
-        assert!(metadata.study_description.is_some());
-        assert_eq!(metadata.modality.as_deref(), Some("CR"));
+        assert!(metadata.patient_name().is_some());
+        assert!(metadata.patient_id().is_some());
+        assert!(metadata.patient_birth_date().is_some());
+        assert!(metadata.accession_number().is_some());
+        assert!(metadata.study_date().is_some());
+        assert!(metadata.study_description().is_some());
+        assert_eq!(metadata.modality(), Some("CR"));
 
         // SOP class and transfer syntax
         assert!(metadata.sop_class.is_some());
@@ -324,8 +321,8 @@ mod tests {
         assert_eq!(metadata.samples_per_pixel, 3);
 
         // Bit depth (RGB is typically 8-bit)
-        assert_eq!(metadata.bits_allocated, 8);
-        assert_eq!(metadata.bits_stored, 8);
+        assert_eq!(metadata.bits_allocated(), 8);
+        assert_eq!(metadata.bits_stored(), 8);
 
         // Planar configuration (should be Some for RGB)
         assert!(metadata.planar_configuration.is_some());
@@ -360,13 +357,13 @@ mod tests {
         assert_rgb_pixels(rgb, "test_file2_metadata", &expected_pixels);
 
         // Display metadata - presence checks only (no personal data)
-        assert!(metadata.patient_name.is_some());
-        assert!(metadata.patient_id.is_some());
-        assert!(metadata.patient_birth_date.is_some());
-        assert!(metadata.accession_number.is_some());
-        assert!(metadata.study_date.is_some());
-        assert!(metadata.study_description.is_some());
-        assert_eq!(metadata.modality.as_deref(), Some("MR"));
+        assert!(metadata.patient_name().is_some());
+        assert!(metadata.patient_id().is_some());
+        assert!(metadata.patient_birth_date().is_some());
+        assert!(metadata.accession_number().is_some());
+        assert!(metadata.study_date().is_some());
+        assert!(metadata.study_description().is_some());
+        assert_eq!(metadata.modality(), Some("MR"));
 
         // SOP class and transfer syntax
         assert!(metadata.sop_class.is_some());
@@ -404,8 +401,8 @@ mod tests {
         assert_eq!(metadata.samples_per_pixel, 1);
 
         // Bit depth
-        assert_eq!(metadata.bits_allocated, 16);
-        assert_eq!(metadata.bits_stored, 16);
+        assert_eq!(metadata.bits_allocated(), 16);
+        assert_eq!(metadata.bits_stored(), 16);
 
         // Planar configuration (should be None for grayscale)
         assert!(metadata.planar_configuration.is_none());
@@ -463,12 +460,12 @@ mod tests {
         assert_grayscale_pixels(rgb, "test_file3_metadata", &expected_pixels);
 
         // Display metadata - presence checks only (no personal data)
-        assert!(metadata.patient_name.is_some());
-        assert!(metadata.patient_id.is_some());
-        assert!(metadata.patient_birth_date.is_some());
-        assert!(metadata.accession_number.is_some());
-        assert!(metadata.study_date.is_some());
-        assert!(metadata.modality.is_some());
+        assert!(metadata.patient_name().is_some());
+        assert!(metadata.patient_id().is_some());
+        assert!(metadata.patient_birth_date().is_some());
+        assert!(metadata.accession_number().is_some());
+        assert!(metadata.study_date().is_some());
+        assert!(metadata.modality().is_some());
 
         // SOP class and transfer syntax
         assert!(metadata.sop_class.is_some());
@@ -502,8 +499,8 @@ mod tests {
         assert_eq!(metadata.cols(), 64);
 
         // Bits allocated (16-bit grayscale)
-        assert_eq!(metadata.bits_allocated, 16);
-        assert_eq!(metadata.bits_stored, 16);
+        assert_eq!(metadata.bits_allocated(), 16);
+        assert_eq!(metadata.bits_stored(), 16);
 
         // Rescale parameters (defaults)
         assert_relative_eq!(metadata.rescale_slope(), 1.0);
@@ -587,8 +584,8 @@ mod tests {
         let obj = open_dicom_file(file_path).expect("Failed to open file1.dcm");
         let metadata = extract_dicom_data(&obj).expect("Failed to extract data from file1.dcm");
 
-        assert_eq!(metadata.bits_allocated, 16);
-        assert_eq!(metadata.bits_stored, 15);
+        assert_eq!(metadata.bits_allocated(), 16);
+        assert_eq!(metadata.bits_stored(), 15);
     }
 
     #[test]
@@ -602,8 +599,8 @@ mod tests {
             extract_dicom_data(&obj).expect("Failed to extract data from SC_rgb_rle_16bit.dcm");
 
         // Verify 16-bit RGB metadata
-        assert_eq!(metadata.bits_allocated, 16);
-        assert_eq!(metadata.bits_stored, 16);
+        assert_eq!(metadata.bits_allocated(), 16);
+        assert_eq!(metadata.bits_stored(), 16);
         assert_eq!(
             metadata.photometric_interpretation,
             PhotometricInterpretation::Rgb
@@ -636,8 +633,8 @@ mod tests {
             extract_dicom_data(&obj).expect("Failed to extract data from examples_palette.dcm");
 
         // Verify palette color metadata
-        assert_eq!(metadata.bits_allocated, 8);
-        assert_eq!(metadata.bits_stored, 8);
+        assert_eq!(metadata.bits_allocated(), 8);
+        assert_eq!(metadata.bits_stored(), 8);
         assert_eq!(
             metadata.photometric_interpretation,
             PhotometricInterpretation::Palette
@@ -668,8 +665,8 @@ mod tests {
             .expect("Failed to extract data from SC_ybr_full_422_uncompressed.dcm");
 
         // Verify YCbCr metadata
-        assert_eq!(metadata.bits_allocated, 8);
-        assert_eq!(metadata.bits_stored, 8);
+        assert_eq!(metadata.bits_allocated(), 8);
+        assert_eq!(metadata.bits_stored(), 8);
         assert_eq!(
             metadata.photometric_interpretation,
             PhotometricInterpretation::YbrFull422
@@ -765,8 +762,8 @@ mod tests {
             extract_dicom_data(&obj).expect("Failed to extract data from examples_ybr_color.dcm");
 
         // Verify metadata
-        assert_eq!(metadata.bits_allocated, 8);
-        assert_eq!(metadata.bits_stored, 8);
+        assert_eq!(metadata.bits_allocated(), 8);
+        assert_eq!(metadata.bits_stored(), 8);
         assert_eq!(
             metadata.photometric_interpretation,
             PhotometricInterpretation::YbrFull422
@@ -828,8 +825,8 @@ mod tests {
         assert_eq!(metadata.samples_per_pixel, 1);
 
         // Bit depth
-        assert_eq!(metadata.bits_allocated, 16);
-        assert_eq!(metadata.bits_stored, 16);
+        assert_eq!(metadata.bits_allocated(), 16);
+        assert_eq!(metadata.bits_stored(), 16);
 
         // Planar configuration (should be None for grayscale)
         assert!(metadata.planar_configuration.is_none());
@@ -887,11 +884,11 @@ mod tests {
         assert_grayscale_pixels(rgb, "test_jpeg2000_lossless_metadata", &expected_pixels);
 
         // Display metadata - presence checks only (no personal data)
-        assert!(metadata.patient_name.is_some());
-        assert!(metadata.patient_id.is_some());
+        assert!(metadata.patient_name().is_some());
+        assert!(metadata.patient_id().is_some());
 
         // Modality
-        assert_eq!(metadata.modality.as_deref(), Some("MR"));
+        assert_eq!(metadata.modality(), Some("MR"));
 
         // SOP class
         assert!(metadata.sop_class.is_some());
@@ -947,8 +944,8 @@ mod tests {
         assert_eq!(metadata.samples_per_pixel, 1);
 
         // Bit depth
-        assert_eq!(metadata.bits_allocated, 16);
-        assert_eq!(metadata.bits_stored, 16);
+        assert_eq!(metadata.bits_allocated(), 16);
+        assert_eq!(metadata.bits_stored(), 16);
 
         // Planar configuration (should be None for grayscale)
         assert!(metadata.planar_configuration.is_none());
@@ -1006,11 +1003,11 @@ mod tests {
         assert_grayscale_pixels(rgb, "test_jpeg2000_lossy_metadata", &expected_pixels);
 
         // Display metadata - presence checks only (no personal data)
-        assert!(metadata.patient_name.is_some());
-        assert!(metadata.patient_id.is_some());
+        assert!(metadata.patient_name().is_some());
+        assert!(metadata.patient_id().is_some());
 
         // Modality
-        assert_eq!(metadata.modality.as_deref(), Some("NM"));
+        assert_eq!(metadata.modality(), Some("NM"));
 
         // SOP class
         assert!(metadata.sop_class.is_some());
@@ -1298,8 +1295,8 @@ mod tests {
         assert_eq!(metadata.samples_per_pixel, 1);
 
         // Bit depth
-        assert_eq!(metadata.bits_allocated, 16);
-        assert_eq!(metadata.bits_stored, 16);
+        assert_eq!(metadata.bits_allocated(), 16);
+        assert_eq!(metadata.bits_stored(), 16);
 
         // Planar configuration (should be None for grayscale)
         assert!(metadata.planar_configuration.is_none());
@@ -1358,7 +1355,7 @@ mod tests {
         assert_grayscale_pixels(rgb, "test_jpeg_ls_lossless_metadata", &expected_pixels);
 
         // Modality
-        assert_eq!(metadata.modality.as_deref(), Some("MR"));
+        assert_eq!(metadata.modality(), Some("MR"));
 
         // SOP class
         assert!(metadata.sop_class.is_some());
@@ -1421,7 +1418,7 @@ mod tests {
         assert_eq!(metadata.rows(), 480);
         assert_eq!(metadata.cols(), 640);
         assert_eq!(metadata.samples_per_pixel, 3);
-        assert_eq!(metadata.bits_allocated, 8);
-        assert_eq!(metadata.bits_stored, 8);
+        assert_eq!(metadata.bits_allocated(), 8);
+        assert_eq!(metadata.bits_stored(), 8);
     }
 }

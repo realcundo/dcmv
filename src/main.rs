@@ -39,8 +39,7 @@ fn main() {
 /// Process a single DICOM file
 fn process_file(file_path: &std::path::Path, args: &Args) -> Result<(), ProcessError> {
     // Stage 1: Open DICOM file
-    let obj = dicom::open_dicom_file(file_path)
-        .map_err(|e| ProcessError::NotADicomFile(e.to_string()))?;
+    let obj = dicom::open_dicom_file(file_path)?;
 
     // Stage 2: Try to extract metadata and decode pixel data
     let metadata = match dicom::extract_dicom_data(&obj) {
@@ -55,7 +54,7 @@ fn process_file(file_path: &std::path::Path, args: &Args) -> Result<(), ProcessE
                     dcmv::print_metadata(&meta);
                 }
 
-            return Err(ProcessError::ExtractionFailed(e.to_string()));
+            return Err(ProcessError::ExtractionFailed(e));
         }
     };
 
@@ -68,14 +67,14 @@ fn process_file(file_path: &std::path::Path, args: &Args) -> Result<(), ProcessE
     let image = image::convert_to_image(&metadata)
         .map_err(|e| ProcessError::ConversionFailed {
             metadata: Box::new(metadata.clone()),
-            error: e.to_string(),
+            error: e,
         })?;
 
     // Stage 5: Display
     display::print_image(&image, &metadata, args)
         .map_err(|e| ProcessError::DisplayFailed {
             metadata: Box::new(metadata),
-            error: e.to_string(),
+            error: e,
         })?;
 
     Ok(())

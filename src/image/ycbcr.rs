@@ -46,10 +46,10 @@ pub fn convert_ycbcr(metadata: &DicomMetadata) -> Result<DynamicImage> {
 }
 
 fn extract_ycbcr_pixels(metadata: &DicomMetadata) -> Result<Vec<u8>> {
-    if metadata.bits_allocated != 8 {
+    if metadata.bits_allocated() != 8 {
         anyhow::bail!(
             "Unsupported bits allocated for YCbCr: {} (expected 8)",
-            metadata.bits_allocated
+            metadata.bits_allocated()
         );
     }
 
