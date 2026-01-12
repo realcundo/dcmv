@@ -31,6 +31,21 @@ dcmv file1.dcm -W 80 -v | cat
 curl -s https://marketing.webassets.siemens-healthineers.com/9af51e5a5a75528f/915124f7f1b1/IMG-0001-00001.dcm | dcmv
 ```
 
+### Use StoreSCP to receive and preview DICOM instances
+
+Server/StoreSCP (from [dcmtk](https://dcmtk.org/en/dcmtk/dcmtk-tools/)):
+```bash
+# Listen on port 10400, saving incoming files to /tmp/dicom,
+# printing them with height of 20, with filename and metadata:
+storescp 10400 -od /tmp/dicom/ --exec-on-reception "dcmv #p/#f -vF -H20"
+```
+
+Client:
+```bash
+# send example file to the SCP
+dcmsend localhost 10400 file1.dcm
+```
+
 ## Installation
 
 Use [Cargo](https://rustup.rs) to install `dcmv` from this git repository:
