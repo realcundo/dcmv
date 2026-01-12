@@ -38,7 +38,7 @@ fn main() {
         let mut any_failed = false;
 
         for (idx, file_path) in args.files.iter().enumerate() {
-            if multiple_files {
+            if multiple_files || args.filename {
                 println!("{}", file_path.display());
             }
 
@@ -115,6 +115,7 @@ mod tests {
             verbose: true,
             width: None,
             height: None,
+            filename: false,
         };
 
         let result = process_file(file_path, &args);
@@ -131,6 +132,7 @@ mod tests {
             verbose: true,
             width: None,
             height: None,
+            filename: false,
         };
 
         let result = process_file(file_path, &args);

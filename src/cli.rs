@@ -20,4 +20,8 @@ pub struct Args {
     /// Show DICOM metadata
     #[arg(short, long)]
     pub verbose: bool,
+
+    /// Show filename before image (useful for single files)
+    #[arg(short = 'F', long)]
+    pub filename: bool,
 }

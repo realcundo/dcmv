@@ -51,6 +51,7 @@ dcmv <FILE> [<FILE2> ..]
 - `-W`, `--width <WIDTH>` (optional): Set the output width in terminal columns.
 - `-H`, `--height <HEIGHT>` (optional): Set the output height in terminal rows.
 - `-v`, `--verbose` (optional): Show DICOM metadata.
+- `-F`, `--filename` (optional): Show filename before the image.
 
 ## License
 
