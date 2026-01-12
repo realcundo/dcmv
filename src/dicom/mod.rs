@@ -7,28 +7,138 @@ mod photometric;
 mod pixel_data;
 mod validation;
 
+/// Type alias for a parsed DICOM object
+///
+/// This hides the complex generic type signature from the public API
+/// while allowing us to pass parsed DICOM objects between functions.
+pub type DicomObject = FileDicomObject<InMemDicomObject<StandardDataDictionary>>;
+
 // Re-export public API
 pub use error::ProcessError;
 pub use metadata::DicomMetadata;
 pub use photometric::PhotometricInterpretation;
 pub use pixel_data::DecodedPixelData;
 
-use anyhow::{Context, Result};
-use crate::types::{BitDepth, Dimensions, PatientInfo, PixelAspectRatio, RescaleParams, SeriesInfo, SOPClass, StudyInfo, TransferSyntax};
-use dicom::object::{FileDicomObject, InMemDicomObject, StandardDataDictionary, open_file};
+use crate::types::{
+    BitDepth, Dimensions, PatientInfo, PixelAspectRatio, RescaleParams, SOPClass, SeriesInfo,
+    StudyInfo, TransferSyntax,
+};
+use anyhow::{anyhow, Context, Result};
+use dicom::object::file::ReadPreamble;
+use dicom::object::{
+    open_file, FileDicomObject, InMemDicomObject, OpenFileOptions, StandardDataDictionary,
+};
+use std::io::{self, stdout, IsTerminal, Read, Seek, Write};
 use std::path::Path;
 use std::str::FromStr;
+
+use crossterm::terminal::{Clear, ClearType};
+use crossterm::{cursor::MoveToColumn, execute, style::Print};
+use tempfile::SpooledTempFile;
 
 /// Open and parse a DICOM file
 ///
 /// # Errors
 ///
 /// Returns an error if the file cannot be read or is not a valid DICOM file
-pub fn open_dicom_file(
-    file_path: &Path,
-) -> Result<FileDicomObject<InMemDicomObject<StandardDataDictionary>>> {
+pub fn open_dicom_file(file_path: &Path) -> Result<DicomObject> {
     open_file(file_path)
         .with_context(|| format!("Failed to open DICOM file: {}", file_path.display()))
+}
+
+/// Format byte count for progress display
+///
+/// Returns a human-readable string representation of the byte count,
+/// using MB for values >= 1 MB, otherwise kB.
+fn format_size(bytes: usize) -> String {
+    let mb = bytes as f64 / 1024.0 / 1024.0;
+    if mb >= 1.0 {
+        format!("{:.1} MB", mb)
+    } else {
+        format!("{:.1} kB", bytes as f64 / 1024.0)
+    }
+}
+
+/// Read and parse a DICOM file from stdin
+///
+/// This function reads DICOM data from stdin with progress display and early
+/// validation of the DICOM preamble. Data is read into a spooled temp file
+/// that keeps small files in memory and spills large files to disk.
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - stdin cannot be read
+/// - the input is not a valid DICOM file (missing "DICM" magic bytes)
+/// - the DICOM file cannot be parsed
+pub fn read_stdin() -> Result<DicomObject> {
+    let stdin = io::stdin();
+    let mut handle = stdin.lock();
+    let is_tty = io::stdout().is_terminal();
+    const PREAMBLE_SIZE: usize = 128;
+    const MAGIC: &[u8] = b"DICM";
+    const HEADER_SIZE: usize = PREAMBLE_SIZE + MAGIC.len();
+
+    let mut temp_file = SpooledTempFile::new(32 * 1024 * 1024);
+
+    if is_tty {
+        execute!(stdout(), Print("Reading from stdin..."))?;
+        stdout().flush()?;
+    }
+
+    // Read and validate preamble first for early rejection
+    let mut header = [0u8; HEADER_SIZE];
+    handle.read_exact(&mut header).with_context(|| {
+        "Input is too short to be a valid DICOM file with preamble (expected at least 132 bytes)"
+    })?;
+
+    if &header[PREAMBLE_SIZE..] != MAGIC {
+        return Err(ProcessError::NotADicomFile(anyhow!(
+            "Input is not a valid DICOM file (missing DICM magic bytes)"
+        ))
+        .into());
+    }
+
+    temp_file.write_all(&header)?;
+    let mut bytes_read = header.len();
+
+    // Copy remaining data
+    let mut chunk = [0u8; 128 * 1024];
+    loop {
+        let n = handle.read(&mut chunk)?;
+        if n == 0 {
+            break;
+        }
+
+        temp_file.write_all(&chunk[..n])?;
+        bytes_read += n;
+
+        if is_tty {
+            let size_str = format_size(bytes_read);
+            execute!(
+                stdout(),
+                MoveToColumn(0),
+                Clear(ClearType::UntilNewLine),
+                Print("Reading from stdin ["),
+                Print(&size_str),
+                Print("]")
+            )?;
+            stdout().flush()?;
+        }
+    }
+
+    if is_tty {
+        execute!(stdout(), MoveToColumn(0), Clear(ClearType::CurrentLine))?;
+        stdout().flush()?;
+    }
+
+    temp_file.rewind()?;
+
+    let dcm = OpenFileOptions::new()
+        .read_preamble(ReadPreamble::Always)
+        .from_reader(temp_file)?;
+
+    Ok(dcm)
 }
 
 /// Common metadata extracted from a DICOM object
@@ -185,8 +295,8 @@ pub fn extract_metadata_tags(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use approx::assert_relative_eq;
     use crate::image::convert_to_image;
+    use approx::assert_relative_eq;
     use std::path::Path;
 
     // Type aliases for test helper functions (simplifies complex types)
@@ -1276,8 +1386,8 @@ mod tests {
         }
 
         let obj = open_dicom_file(file_path).expect("Failed to open MR_small_jpeg_ls_lossless.dcm");
-        let metadata =
-            extract_dicom_data(&obj).expect("Failed to extract data from MR_small_jpeg_ls_lossless.dcm");
+        let metadata = extract_dicom_data(&obj)
+            .expect("Failed to extract data from MR_small_jpeg_ls_lossless.dcm");
 
         // Image dimensions
         assert_eq!(metadata.rows(), 64);
@@ -1305,8 +1415,7 @@ mod tests {
         assert!(!metadata.pixel_data().is_empty());
 
         // Image conversion should succeed
-        let image =
-            convert_to_image(&metadata).expect("Failed to convert JPEG-LS image to RGB");
+        let image = convert_to_image(&metadata).expect("Failed to convert JPEG-LS image to RGB");
         assert_eq!(image.width(), u32::from(metadata.cols()));
         assert_eq!(image.height(), u32::from(metadata.rows()));
 
@@ -1365,7 +1474,10 @@ mod tests {
 
         // Transfer syntax should be JPEG-LS Lossless
         assert!(
-            metadata.transfer_syntax.uid.contains("1.2.840.10008.1.2.4.80"),
+            metadata
+                .transfer_syntax
+                .uid
+                .contains("1.2.840.10008.1.2.4.80"),
             "Transfer syntax UID should be JPEG-LS Lossless, got: {}",
             metadata.transfer_syntax.uid
         );
@@ -1408,7 +1520,10 @@ mod tests {
 
         // Full extraction should fail (pixel decode fails)
         let full_result = extract_dicom_data(&obj);
-        assert!(full_result.is_err(), "extract_dicom_data should fail for JPEG2000");
+        assert!(
+            full_result.is_err(),
+            "extract_dicom_data should fail for JPEG2000"
+        );
 
         // Partial metadata extraction should succeed
         let metadata = extract_metadata_tags(&obj)

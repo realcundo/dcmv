@@ -20,6 +20,7 @@ dicom-pixeldata = { version = "0.9", features = ["image","gdcm"] }
 image = "0.25"
 thiserror = "2"
 viuer = {  version="0.11", features=["icy_sixel"] }
+tempfile = "3"
 
 [dev-dependencies]
 approx = "0.5"

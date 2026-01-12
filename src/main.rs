@@ -1,60 +1,73 @@
 use clap::{CommandFactory, Parser};
 use dcmv::cli::Args;
-use dcmv::dicom::{self, ProcessError};
+use dcmv::dicom::{self, ProcessError, read_stdin, DicomObject};
 use dcmv::display;
 use dcmv::image;
+use std::io::{self, IsTerminal};
 
 fn main() {
     let args = Args::parse();
 
-    if args.files.is_empty() {
+    // Show help if no files provided in TTY mode
+    if args.files.is_empty() && io::stdin().is_terminal() {
         let _ = Args::command().print_help();
         println!();
         return;
     }
 
-    // Initialize terminal detection BEFORE processing any files.
-    // This prevents escape sequence race conditions during file display.
+    // Initialize terminal display before processing to prevent escape sequence race conditions
     dcmv::init_terminal_display();
 
-    let multiple_files = args.files.len() > 1;
-    let mut any_failed = false;
+    let use_stdin = args.files.is_empty() && !io::stdin().is_terminal();
 
-    for (idx, file_path) in args.files.iter().enumerate() {
-        if multiple_files {
-            println!("{}", file_path.display());
+    if use_stdin {
+        match read_stdin() {
+            Ok(dcm) => {
+                if let Err(e) = process_dicom(&dcm, &args) {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            }
+            Err(e) => {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+        }
+    } else {
+        let multiple_files = args.files.len() > 1;
+        let mut any_failed = false;
+
+        for (idx, file_path) in args.files.iter().enumerate() {
+            if multiple_files {
+                println!("{}", file_path.display());
+            }
+
+            if let Err(e) = process_file(file_path, &args) {
+                println!("Error: {e}");
+                any_failed = true;
+            }
+
+            if multiple_files && idx < args.files.len() - 1 {
+                println!();
+            }
         }
 
-        if let Err(e) = process_file(file_path, &args) {
-            println!("Error: {e}");
-            any_failed = true;
+        if any_failed {
+            std::process::exit(1);
         }
-
-        if multiple_files && idx < args.files.len() - 1 {
-            println!();
-        }
-    }
-
-    if any_failed {
-        std::process::exit(1);
     }
 }
 
-/// Process a single DICOM file
-fn process_file(file_path: &std::path::Path, args: &Args) -> Result<(), ProcessError> {
-    // Stage 1: Open DICOM file
-    let obj = dicom::open_dicom_file(file_path)?;
-
-    // Stage 2: Try to extract metadata and decode pixel data
-    let metadata = match dicom::extract_dicom_data(&obj) {
+/// Process a parsed DICOM object (common logic for files and stdin)
+fn process_dicom(obj: &DicomObject, args: &Args) -> Result<(), ProcessError> {
+    let metadata = match dicom::extract_dicom_data(obj) {
         Ok(m) => m,
         Err(e) => {
-            // Extraction failed - try to get partial metadata for verbose display
-            let partial_metadata = dicom::extract_metadata_tags(&obj);
+            // Try to get partial metadata for verbose display before failing
+            let partial_metadata = dicom::extract_metadata_tags(obj);
 
             if args.verbose
                 && let Ok(meta) = partial_metadata {
-                    // We have partial metadata - print it, then return error
                     dcmv::print_metadata(&meta);
                 }
 
@@ -62,19 +75,16 @@ fn process_file(file_path: &std::path::Path, args: &Args) -> Result<(), ProcessE
         }
     };
 
-    // Stage 3: Verbose output (print if extraction succeeded)
     if args.verbose {
         dcmv::print_metadata(&metadata);
     }
 
-    // Stage 4: Convert to image
     let image = image::convert_to_image(&metadata)
         .map_err(|e| ProcessError::ConversionFailed {
             metadata: Box::new(metadata.clone()),
             error: e,
         })?;
 
-    // Stage 5: Display
     display::print_image(&image, &metadata, args)
         .map_err(|e| ProcessError::DisplayFailed {
             metadata: Box::new(metadata),
@@ -82,6 +92,12 @@ fn process_file(file_path: &std::path::Path, args: &Args) -> Result<(), ProcessE
         })?;
 
     Ok(())
+}
+
+/// Process a single DICOM file
+fn process_file(file_path: &std::path::Path, args: &Args) -> Result<(), ProcessError> {
+    let obj = dicom::open_dicom_file(file_path)?;
+    process_dicom(&obj, args)
 }
 
 #[cfg(test)]
