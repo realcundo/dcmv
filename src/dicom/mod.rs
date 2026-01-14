@@ -24,16 +24,16 @@ use crate::types::{
     StudyInfo, TransferSyntax,
 };
 use anyhow::{anyhow, Context, Result};
+use dicom::dictionary_std::tags;
 use dicom::object::file::ReadPreamble;
 use dicom::object::{
     open_file, FileDicomObject, InMemDicomObject, OpenFileOptions, StandardDataDictionary,
 };
+use crossterm::terminal::{Clear, ClearType};
+use crossterm::{cursor::MoveToColumn, execute, style::Print};
 use std::io::{self, stdout, IsTerminal, Read, Seek, Write};
 use std::path::Path;
 use std::str::FromStr;
-
-use crossterm::terminal::{Clear, ClearType};
-use crossterm::{cursor::MoveToColumn, execute, style::Print};
 use tempfile::SpooledTempFile;
 
 /// Open and parse a DICOM file
@@ -168,8 +168,6 @@ struct CommonMetadata {
 fn extract_common_metadata(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
 ) -> Result<CommonMetadata> {
-    use dicom::dictionary_std::tags;
-
     let error_context: parser::ErrorContext = obj.into();
     let dimensions = parser::extract_dimensions(obj, &error_context)?;
 

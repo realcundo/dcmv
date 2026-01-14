@@ -1,8 +1,11 @@
 use crate::types::{BitDepth, Dimensions, PatientInfo, PixelAspectRatio, RescaleParams, SeriesInfo, SOPClass, StudyInfo, TransferSyntax};
 use anyhow::{Context, Result};
 use dicom::core::dictionary::UidDictionary;
+use dicom::dictionary_std::sop_class;
+use dicom::dictionary_std::tags;
 use dicom::encoding::TransferSyntaxIndex;
 use dicom::object::{FileDicomObject, InMemDicomObject, StandardDataDictionary};
+use dicom::transfer_syntax::TransferSyntaxRegistry;
 
 /// Partial metadata for error message context
 #[derive(Debug, Clone)]
@@ -52,8 +55,6 @@ impl Default for ErrorContext {
 // From DicomObject
 impl From<&FileDicomObject<InMemDicomObject<StandardDataDictionary>>> for ErrorContext {
     fn from(obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>) -> Self {
-        use dicom::dictionary_std::tags;
-
         ErrorContext {
             modality: obj
                 .get(tags::MODALITY)
@@ -68,8 +69,6 @@ pub fn extract_dimensions(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
     error_context: &ErrorContext,
 ) -> Result<Dimensions> {
-    use dicom::dictionary_std::tags;
-
     let rows = obj
         .get(tags::ROWS)
         .and_then(|e| e.to_int::<u16>().ok())
@@ -86,8 +85,6 @@ pub fn extract_dimensions(
 pub fn extract_rescale_params(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
 ) -> RescaleParams {
-    use dicom::dictionary_std::tags;
-
     // RESCALE_SLOPE and RESCALE_INTERCEPT are optional DICOM tags
     // They are primarily used for CT/PET scans to convert pixel values to Hounsfield units
     // For other modalities (CR, MR, etc.), these tags may not be present
@@ -107,8 +104,6 @@ pub fn extract_rescale_params(
 pub fn extract_pixel_aspect_ratio(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
 ) -> Option<PixelAspectRatio> {
-    use dicom::dictionary_std::tags;
-
     obj.get(tags::PIXEL_ASPECT_RATIO)
         .and_then(|e| e.value().to_str().ok())
         .and_then(|s| {
@@ -123,8 +118,6 @@ pub fn extract_pixel_aspect_ratio(
 pub fn extract_number_of_frames(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
 ) -> u32 {
-    use dicom::dictionary_std::tags;
-
     obj.get(tags::NUMBER_OF_FRAMES)
         .and_then(|e| e.to_int::<u32>().ok())
         .unwrap_or(1)
@@ -134,8 +127,6 @@ pub fn extract_number_of_frames(
 pub fn extract_samples_per_pixel(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
 ) -> u16 {
-    use dicom::dictionary_std::tags;
-
     obj.get(tags::SAMPLES_PER_PIXEL)
         .and_then(|e| e.to_int::<u16>().ok())
         .unwrap_or(1)
@@ -145,8 +136,6 @@ pub fn extract_bit_depth(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
     error_context: &ErrorContext,
 ) -> Result<BitDepth, anyhow::Error> {
-    use dicom::dictionary_std::tags;
-
     let allocated = obj
         .get(tags::BITS_ALLOCATED)
         .and_then(|e| e.to_int::<u16>().ok())
@@ -164,8 +153,6 @@ pub fn extract_bit_depth(
 pub fn extract_planar_configuration(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
 ) -> Option<u16> {
-    use dicom::dictionary_std::tags;
-
     obj.get(tags::PLANAR_CONFIGURATION)
         .and_then(|e| e.to_int::<u16>().ok())
 }
@@ -173,8 +160,6 @@ pub fn extract_planar_configuration(
 pub fn extract_transfer_syntax(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
 ) -> TransferSyntax {
-    use dicom::transfer_syntax::TransferSyntaxRegistry;
-
     let uid = obj.meta().transfer_syntax().to_string();
     let name = TransferSyntaxRegistry
         .get(&uid)
@@ -186,9 +171,6 @@ pub fn extract_transfer_syntax(
 pub fn extract_sop_class(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
 ) -> Option<SOPClass> {
-    use dicom::dictionary_std::sop_class;
-    use dicom::dictionary_std::tags;
-
     obj.get(tags::SOP_CLASS_UID)
         .and_then(|e| e.value().to_str().ok())
         .and_then(|uid| {
@@ -201,8 +183,6 @@ pub fn extract_sop_class(
 pub fn extract_patient_info(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
 ) -> PatientInfo {
-    use dicom::dictionary_std::tags;
-
     let name = obj
         .get(tags::PATIENT_NAME)
         .and_then(|e| e.value().to_str().ok())
@@ -224,8 +204,6 @@ pub fn extract_patient_info(
 pub fn extract_study_info(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
 ) -> StudyInfo {
-    use dicom::dictionary_std::tags;
-
     let accession_number = obj
         .get(tags::ACCESSION_NUMBER)
         .and_then(|e| e.value().to_str().ok())
@@ -257,8 +235,6 @@ pub fn extract_study_info(
 pub fn extract_series_info(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
 ) -> SeriesInfo {
-    use dicom::dictionary_std::tags;
-
     let description = obj
         .get(tags::SERIES_DESCRIPTION)
         .and_then(|e| e.value().to_str().ok())

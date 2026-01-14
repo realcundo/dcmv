@@ -1,7 +1,10 @@
 use anyhow::{Context, Result};
+use dicom::core::header::HasLength;
+use dicom::dictionary_std::tags;
 use dicom::object::{FileDicomObject, InMemDicomObject, StandardDataDictionary};
-use dicom::pixeldata::PixelDecoder;
+use dicom::pixeldata::{ConvertOptions, PixelDecoder};
 use dicom::transfer_syntax::entries;
+use image::DynamicImage::ImageRgb8;
 
 #[derive(Debug, Clone)]
 pub enum DecodedPixelData {
@@ -17,6 +20,19 @@ pub fn extract_pixel_data(
     transfer_syntax_uid: &str,
     planar_configuration: Option<u16>,
 ) -> Result<DecodedPixelData> {
+    // Check for pixel data presence early (without reading data into memory)
+    match obj.element(tags::PIXEL_DATA) {
+        Ok(element) => {
+            // Check if pixel data is empty (zero length)
+            if element.is_empty() {
+                anyhow::bail!("Pixel data is empty (zero length)");
+            }
+        }
+        Err(_) => {
+            anyhow::bail!("This DICOM file does not contain pixel data");
+        }
+    }
+
     let is_big_endian = transfer_syntax_uid == entries::EXPLICIT_VR_BIG_ENDIAN.uid();
     let compressed = is_compressed(transfer_syntax_uid);
     let is_ycbcr = photometric_interpretation.contains("YBR");
@@ -69,9 +85,6 @@ enum DecodedPixelFormat {
 fn extract_via_dynamic_image(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
 ) -> Result<DecodedPixelData> {
-    use dicom::pixeldata::{ConvertOptions, PixelDecoder};
-    use image::DynamicImage::ImageRgb8;
-
     let decoded_pixel_data = obj
         .decode_pixel_data()
         .context("Failed to decode pixel data")?;
