@@ -15,14 +15,15 @@ fn main() {
         return;
     }
 
-    // Initialize terminal display before processing to prevent escape sequence race conditions
-    dcmv::init_terminal_display();
-
     let use_stdin = args.files.is_empty() && !io::stdin().is_terminal();
 
     if use_stdin {
         match read_stdin() {
             Ok(dcm) => {
+                // Initialize terminal AFTER stdin reading, BEFORE processing
+                // This ensures terminal is in a clean state after progress display
+                dcmv::init_terminal_display();
+
                 if let Err(e) = process_dicom(&dcm, &args) {
                     eprintln!("Error: {e}");
                     std::process::exit(1);
@@ -34,6 +35,10 @@ fn main() {
             }
         }
     } else {
+        // Initialize terminal once before file processing loop
+        // (viuer caches protocol results, so no need to call per-file)
+        dcmv::init_terminal_display();
+
         let multiple_files = args.files.len() > 1;
         let mut any_failed = false;
 
