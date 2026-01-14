@@ -23,15 +23,15 @@ use crate::types::{
     BitDepth, Dimensions, PatientInfo, PixelAspectRatio, RescaleParams, SOPClass, SeriesInfo,
     StudyInfo, TransferSyntax,
 };
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
+use crossterm::terminal::{Clear, ClearType};
+use crossterm::{cursor::MoveToColumn, execute, style::Print};
 use dicom::dictionary_std::tags;
 use dicom::object::file::ReadPreamble;
 use dicom::object::{
-    open_file, FileDicomObject, InMemDicomObject, OpenFileOptions, StandardDataDictionary,
+    FileDicomObject, InMemDicomObject, OpenFileOptions, StandardDataDictionary, open_file,
 };
-use crossterm::terminal::{Clear, ClearType};
-use crossterm::{cursor::MoveToColumn, execute, style::Print};
-use std::io::{self, stdout, IsTerminal, Read, Seek, Write};
+use std::io::{self, IsTerminal, Read, Seek, Write, stdout};
 use std::path::Path;
 use std::str::FromStr;
 use tempfile::SpooledTempFile;

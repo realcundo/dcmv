@@ -1,4 +1,7 @@
-use crate::types::{BitDepth, Dimensions, PatientInfo, PixelAspectRatio, RescaleParams, SeriesInfo, SOPClass, StudyInfo, TransferSyntax};
+use crate::types::{
+    BitDepth, Dimensions, PatientInfo, PixelAspectRatio, RescaleParams, SOPClass, SeriesInfo,
+    StudyInfo, TransferSyntax,
+};
 use anyhow::{Context, Result};
 use dicom::core::dictionary::UidDictionary;
 use dicom::dictionary_std::sop_class;
@@ -198,7 +201,11 @@ pub fn extract_patient_info(
         .and_then(|e| e.value().to_str().ok())
         .map(|s| s.to_string());
 
-    PatientInfo { name, id, birth_date }
+    PatientInfo {
+        name,
+        id,
+        birth_date,
+    }
 }
 
 pub fn extract_study_info(

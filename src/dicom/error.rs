@@ -33,8 +33,8 @@ impl ProcessError {
     #[must_use]
     pub fn metadata(&self) -> Option<&DicomMetadata> {
         match self {
-            ProcessError::ConversionFailed { metadata, .. } |
-            ProcessError::DisplayFailed { metadata, .. } => Some(metadata),
+            ProcessError::ConversionFailed { metadata, .. }
+            | ProcessError::DisplayFailed { metadata, .. } => Some(metadata),
             _ => None,
         }
     }

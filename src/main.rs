@@ -1,6 +1,6 @@
 use clap::{CommandFactory, Parser};
 use dcmv::cli::Args;
-use dcmv::dicom::{self, ProcessError, read_stdin, DicomObject};
+use dcmv::dicom::{self, DicomObject, ProcessError, read_stdin};
 use dcmv::display;
 use dcmv::image;
 use std::io::{self, IsTerminal};
@@ -72,9 +72,10 @@ fn process_dicom(obj: &DicomObject, args: &Args) -> Result<(), ProcessError> {
             let partial_metadata = dicom::extract_metadata_tags(obj);
 
             if args.verbose
-                && let Ok(meta) = partial_metadata {
-                    dcmv::print_metadata(&meta);
-                }
+                && let Ok(meta) = partial_metadata
+            {
+                dcmv::print_metadata(&meta);
+            }
 
             return Err(ProcessError::ExtractionFailed(e));
         }
@@ -84,17 +85,15 @@ fn process_dicom(obj: &DicomObject, args: &Args) -> Result<(), ProcessError> {
         dcmv::print_metadata(&metadata);
     }
 
-    let image = image::convert_to_image(&metadata)
-        .map_err(|e| ProcessError::ConversionFailed {
-            metadata: Box::new(metadata.clone()),
-            error: e,
-        })?;
+    let image = image::convert_to_image(&metadata).map_err(|e| ProcessError::ConversionFailed {
+        metadata: Box::new(metadata.clone()),
+        error: e,
+    })?;
 
-    display::print_image(&image, &metadata, args)
-        .map_err(|e| ProcessError::DisplayFailed {
-            metadata: Box::new(metadata),
-            error: e,
-        })?;
+    display::print_image(&image, &metadata, args).map_err(|e| ProcessError::DisplayFailed {
+        metadata: Box::new(metadata),
+        error: e,
+    })?;
 
     Ok(())
 }

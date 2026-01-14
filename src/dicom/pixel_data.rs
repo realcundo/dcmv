@@ -58,11 +58,12 @@ pub fn extract_pixel_data(
         return extract_via_dynamic_image(obj);
     }
 
-    let format = if is_ycbcr || photometric_interpretation == "PALETTE COLOR" || bits_allocated == 32 {
-        DecodedPixelFormat::YcbCr
-    } else {
-        DecodedPixelFormat::Native
-    };
+    let format =
+        if is_ycbcr || photometric_interpretation == "PALETTE COLOR" || bits_allocated == 32 {
+            DecodedPixelFormat::YcbCr
+        } else {
+            DecodedPixelFormat::Native
+        };
 
     let data = if !compressed && matches!(format, DecodedPixelFormat::YcbCr) {
         extract_raw_pixel_data(obj)?

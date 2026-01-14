@@ -1,10 +1,10 @@
 use crate::cli::Args;
 use crate::dicom::DicomMetadata;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
+use crossterm::{cursor::MoveToColumn, execute, terminal::Clear, terminal::ClearType};
 use image::DynamicImage;
 use std::io::{IsTerminal, Write};
-use viuer::{get_kitty_support, is_iterm_supported, print, Config as ViuerConfig};
-use crossterm::{execute, terminal::Clear, terminal::ClearType, cursor::MoveToColumn};
+use viuer::{Config as ViuerConfig, get_kitty_support, is_iterm_supported, print};
 
 /// Initialize terminal graphics protocol detection at startup.
 ///

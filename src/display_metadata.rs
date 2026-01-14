@@ -21,11 +21,6 @@ pub fn print_metadata(metadata: &DicomMetadata) {
     print_sop_class_info(metadata);
     print_transfer_syntax_info(metadata);
 
-    let thickness_display = metadata
-        .slice_thickness()
-        .map_or_else(|| UNKNOWN_TAG_VALUE.to_string(), |t| t.to_string());
-    println!("{:20}: {}", "Slice Thickness", thickness_display);
-
     println!();
 }
 
