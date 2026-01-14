@@ -53,9 +53,9 @@ pub fn open_dicom_file(file_path: &Path) -> Result<DicomObject> {
 fn format_size(bytes: usize) -> String {
     let mb = bytes as f64 / 1024.0 / 1024.0;
     if mb >= 1.0 {
-        format!("{:.1} MB", mb)
+        format!("{:>6.1} MB", mb)
     } else {
-        format!("{:.1} kB", bytes as f64 / 1024.0)
+        format!("{:>6.1} kB", bytes as f64 / 1024.0)
     }
 }
 
