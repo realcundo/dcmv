@@ -6,6 +6,12 @@ This is an initial non-interactive implementation. The purpose is a quick previe
 
 In modern terminals that support image protocols (e.g., Kitty, Ghostty, iTerm2, WezTerm), images are displayed in higher resolution.
 
+## TL;DR
+
+| Terminal without image support  | Terminal with image support     |
+|---------------------------------|---------------------------------|
+| ![basic](docs/images/basic.png) | ![kitty](docs/images/kitty.png) |
+
 ## Examples
 
 ### Display multiple DICOM files (no metadata)
@@ -53,6 +59,20 @@ Use [Cargo](https://rustup.rs) to install `dcmv` from this git repository:
 ```bash
 cargo install dcmv --git https://github.com/realcundo/dcmv
 ```
+
+## Limitations
+
+The goal is to have a quick previewer, not a fully featured DICOM viewer.
+That said, the more files are supported, the better.
+
+Currently
+- not all terminals and all operating systems are fully supported.
+- no windowing or LUT support
+- not all transfer syntaxes are supported
+- multiframe DICOM files are partially supported (the first frame is displayed)
+
+Adding additional support might be possible, depending on whether upstream crates (`dicom-rs` and `gdcm-rs`)
+make it possible.
 
 ## Usage
 
