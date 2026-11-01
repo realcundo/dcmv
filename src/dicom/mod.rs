@@ -2,6 +2,7 @@
 
 mod error;
 mod metadata;
+mod overlay;
 mod parser;
 mod photometric;
 mod pixel_data;
@@ -16,6 +17,7 @@ pub type DicomObject = FileDicomObject<InMemDicomObject<StandardDataDictionary>>
 // Re-export public API
 pub use error::ProcessError;
 pub use metadata::DicomMetadata;
+pub use overlay::apply_overlays;
 pub use photometric::PhotometricInterpretation;
 pub use pixel_data::DecodedPixelData;
 
@@ -764,6 +766,46 @@ mod tests {
     }
 
     #[test]
+    fn test_jpeg2000_ybr_rct_metadata() {
+        // JPEG 2000 with YBR_RCT photometric interpretation (reversible
+        // color transform). The native OpenJPEG decoder applies the inverse
+        // RCT while decoding the codestream, so the decoded buffer is RGB
+        // even though the file-level attribute says YBR_RCT.
+        let file_path = Path::new(".test-files/examples_jpeg2k.dcm");
+        let obj = open_dicom_file(file_path).expect("Failed to open examples_jpeg2k.dcm");
+        let metadata = extract_dicom_data(&obj).expect("Failed to extract examples_jpeg2k.dcm");
+
+        assert_eq!(metadata.rows(), 480);
+        assert_eq!(metadata.cols(), 640);
+        assert_eq!(metadata.samples_per_pixel, 3);
+        assert_eq!(metadata.bits_allocated(), 8);
+        assert_eq!(metadata.bits_stored(), 8);
+
+        let image = convert_to_image(&metadata).expect("Failed to convert examples_jpeg2k.dcm");
+        assert_eq!(image.width(), 640);
+        assert_eq!(image.height(), 480);
+
+        let rgb = image.as_rgb8().expect("Should be RGB image");
+        let width = rgb.width();
+        let height = rgb.height();
+
+        let expected_pixels = [
+            ((width / 4, height / 4), (20, 20, 20)),
+            ((width / 2, height / 4), (45, 45, 45)),
+            ((3 * width / 4, height / 4), (64, 64, 64)),
+            ((width / 4, height / 2), (255, 183, 0)),
+            ((width / 2, height / 2), (12, 12, 12)),
+            ((3 * width / 4, height / 2), (14, 14, 14)),
+            ((width / 4, 3 * height / 4), (0, 0, 0)),
+            ((width / 2, 3 * height / 4), (0, 0, 0)),
+            ((3 * width / 4, 3 * height / 4), (0, 0, 0)),
+            ((width / 2, height / 2 + 10), (92, 92, 92)),
+        ];
+
+        assert_rgb_pixels(rgb, "test_jpeg2000_ybr_rct_metadata", &expected_pixels);
+    }
+
+    #[test]
     fn test_ycbcr_color_metadata() {
         // YCbCr color space (YBR_FULL_422)
         let file_path = Path::new(".test-files/SC_ybr_full_422_uncompressed.dcm");
@@ -1508,24 +1550,26 @@ mod tests {
 
     #[test]
     fn test_extract_metadata_tags_on_jpeg2000() {
-        // Test that extract_metadata_tags() works even when pixel data decoding fails
-        // examples_jpeg2k.dcm has JPEG2000 compressed pixel data that gdcm can't decode
+        // examples_jpeg2k.dcm has JPEG2000 compressed pixel data.
+        // Full pixel data decoding used to fail in GDCM's multiframe path;
+        // single-frame decoding (decode_pixel_data_frame) handles it.
         let file_path = Path::new(".test-files/examples_jpeg2k.dcm");
         assert!(file_path.exists());
 
         // Opening the file should succeed (it's a valid DICOM)
         let obj = open_dicom_file(file_path).expect("Failed to open JPEG2000 file");
 
-        // Full extraction should fail (pixel decode fails)
+        // Full extraction succeeds via single-frame decoding
         let full_result = extract_dicom_data(&obj);
         assert!(
-            full_result.is_err(),
-            "extract_dicom_data should fail for JPEG2000"
+            full_result.is_ok(),
+            "extract_dicom_data should succeed for JPEG2000: {}",
+            full_result.err().map(|e| e.to_string()).unwrap_or_default()
         );
 
-        // Partial metadata extraction should succeed
-        let metadata = extract_metadata_tags(&obj)
-            .expect("extract_metadata_tags should succeed even when pixel decode fails");
+        // Partial metadata extraction also succeeds
+        let metadata =
+            extract_metadata_tags(&obj).expect("extract_metadata_tags should succeed for JPEG2000");
 
         // Verify key metadata fields are extracted correctly
         assert_eq!(metadata.rows(), 480);

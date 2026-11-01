@@ -24,4 +24,8 @@ pub struct Args {
     /// Show filename before image (useful for single files)
     #[arg(short = 'F', long)]
     pub filename: bool,
+
+    /// Render DICOM overlay planes (groups 6000-601E) on top of the image
+    #[arg(long)]
+    pub overlays: bool,
 }

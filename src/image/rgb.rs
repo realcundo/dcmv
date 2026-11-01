@@ -86,7 +86,7 @@ fn extract_rgb_32bit(metadata: &DicomMetadata) -> Result<Vec<u8>> {
 
     match metadata.planar_configuration {
         None | Some(0) => {
-            for chunk in pixel_data.chunks_exact(12) {
+            for chunk in pixel_data.as_chunks::<12>().0 {
                 let r = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
                 let g = u32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]);
                 let b = u32::from_le_bytes([chunk[8], chunk[9], chunk[10], chunk[11]]);
@@ -102,13 +102,13 @@ fn extract_rgb_32bit(metadata: &DicomMetadata) -> Result<Vec<u8>> {
             let g_data = &pixel_data[bytes_per_channel..2 * bytes_per_channel];
             let b_data = &pixel_data[2 * bytes_per_channel..];
 
-            for chunk in r_data.chunks_exact(4) {
+            for chunk in r_data.as_chunks::<4>().0 {
                 r_values.push(u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
             }
-            for chunk in g_data.chunks_exact(4) {
+            for chunk in g_data.as_chunks::<4>().0 {
                 g_values.push(u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
             }
-            for chunk in b_data.chunks_exact(4) {
+            for chunk in b_data.as_chunks::<4>().0 {
                 b_values.push(u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
             }
         }

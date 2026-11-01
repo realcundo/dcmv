@@ -85,10 +85,18 @@ fn process_dicom(obj: &DicomObject, args: &Args) -> Result<(), ProcessError> {
         dcmv::print_metadata(&metadata);
     }
 
-    let image = image::convert_to_image(&metadata).map_err(|e| ProcessError::ConversionFailed {
-        metadata: Box::new(metadata.clone()),
-        error: e,
-    })?;
+    let mut image =
+        image::convert_to_image(&metadata).map_err(|e| ProcessError::ConversionFailed {
+            metadata: Box::new(metadata.clone()),
+            error: e,
+        })?;
+
+    if args.overlays {
+        dicom::apply_overlays(obj, &mut image).map_err(|e| ProcessError::ConversionFailed {
+            metadata: Box::new(metadata.clone()),
+            error: e,
+        })?;
+    }
 
     display::print_image(&image, &metadata, args).map_err(|e| ProcessError::DisplayFailed {
         metadata: Box::new(metadata),
@@ -120,6 +128,7 @@ mod tests {
             width: None,
             height: None,
             filename: false,
+            overlays: false,
         };
 
         let result = process_file(file_path, &args);
@@ -127,7 +136,10 @@ mod tests {
     }
 
     #[test]
-    fn test_jpeg2k_returns_extractionfailed_error() {
+    fn test_jpeg2k_end_to_end() {
+        // Pixel data decodes via single-frame decoding and the decoded RGB
+        // buffer renders without conversion errors (see also the pixel
+        // sampling test in the library test suite)
         let file_path = Path::new(".test-files/examples_jpeg2k.dcm");
         assert!(file_path.exists());
 
@@ -137,9 +149,10 @@ mod tests {
             width: None,
             height: None,
             filename: false,
+            overlays: false,
         };
 
         let result = process_file(file_path, &args);
-        assert_matches::assert_matches!(result, Err(ProcessError::ExtractionFailed(_)));
+        assert_matches::assert_matches!(result, Ok(()));
     }
 }

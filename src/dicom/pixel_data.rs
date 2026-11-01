@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use dicom::core::header::HasLength;
 use dicom::dictionary_std::tags;
 use dicom::object::{FileDicomObject, InMemDicomObject, StandardDataDictionary};
+use dicom::pixeldata::PhotometricInterpretation as DecodedPhotometricInterpretation;
 use dicom::pixeldata::{ConvertOptions, PixelDecoder};
 use dicom::transfer_syntax::entries;
 use image::DynamicImage::ImageRgb8;
@@ -65,14 +66,28 @@ pub fn extract_pixel_data(
             DecodedPixelFormat::Native
         };
 
-    let data = if !compressed && matches!(format, DecodedPixelFormat::YcbCr) {
-        extract_raw_pixel_data(obj)?
+    let (data, decoded_pmi) = if !compressed && matches!(format, DecodedPixelFormat::YcbCr) {
+        (extract_raw_pixel_data(obj)?, None)
     } else {
         extract_decoded_pixel_data(obj, bits_allocated)?
     };
 
+    // Codec output is already color-converted: dicom-pixeldata reports the
+    // photometric interpretation of the decoded buffer, which can differ from
+    // the file-level attribute (e.g. the native JPEG decoder delivers RGB
+    // where the file declares YBR_FULL_422, while GDCM delivers raw YCbCr).
+    // Routing on the file attribute here would apply a second YCbCr -> RGB
+    // conversion to native codec output.
+    let format = match (format, decoded_pmi) {
+        (DecodedPixelFormat::YcbCr, Some(DecodedPhotometricInterpretation::Rgb)) => {
+            DecodedPixelFormat::Rgb
+        }
+        (format, _) => format,
+    };
+
     Ok(match format {
         DecodedPixelFormat::YcbCr => DecodedPixelData::YcbCr(data),
+        DecodedPixelFormat::Rgb => DecodedPixelData::Rgb(data),
         DecodedPixelFormat::Native => DecodedPixelData::Native(data),
     })
 }
@@ -80,6 +95,7 @@ pub fn extract_pixel_data(
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum DecodedPixelFormat {
     YcbCr,
+    Rgb,
     Native,
 }
 
@@ -87,7 +103,7 @@ fn extract_via_dynamic_image(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
 ) -> Result<DecodedPixelData> {
     let decoded_pixel_data = obj
-        .decode_pixel_data()
+        .decode_pixel_data_frame(0)
         .context("Failed to decode pixel data")?;
 
     let options =
@@ -138,13 +154,17 @@ fn extract_raw_pixel_data(
         .into_boxed_slice())
 }
 
+/// Decode the displayed frame, reporting the photometric interpretation
+/// of the decoded buffer (`None` when no codec was involved).
 fn extract_decoded_pixel_data(
     obj: &FileDicomObject<InMemDicomObject<StandardDataDictionary>>,
     bits_allocated: u16,
-) -> Result<Box<[u8]>> {
+) -> Result<(Box<[u8]>, Option<DecodedPhotometricInterpretation>)> {
     let decoded_pixel_data = obj
-        .decode_pixel_data()
+        .decode_pixel_data_frame(0)
         .context("Failed to decode pixel data")?;
+
+    let decoded_pmi = Some(decoded_pixel_data.photometric_interpretation().clone());
 
     if bits_allocated == 32 {
         let data = decoded_pixel_data
@@ -154,13 +174,19 @@ fn extract_decoded_pixel_data(
             .flat_map(|&v| v.to_le_bytes())
             .collect::<Vec<_>>()
             .into_boxed_slice();
-        Ok(data)
+        Ok((data, decoded_pmi))
     } else if bits_allocated == 16 {
-        Ok(decoded_pixel_data.data().to_vec().into_boxed_slice())
+        Ok((
+            decoded_pixel_data.data().to_vec().into_boxed_slice(),
+            decoded_pmi,
+        ))
     } else {
-        Ok(decoded_pixel_data
-            .to_vec::<u8>()
-            .context("Failed to convert pixel data to bytes")?
-            .into_boxed_slice())
+        Ok((
+            decoded_pixel_data
+                .to_vec::<u8>()
+                .context("Failed to convert pixel data to bytes")?
+                .into_boxed_slice(),
+            decoded_pmi,
+        ))
     }
 }

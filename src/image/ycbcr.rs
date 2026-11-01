@@ -11,7 +11,9 @@ pub fn convert_ycbcr(metadata: &DicomMetadata) -> Result<DynamicImage> {
     let pixel_data = extract_ycbcr_pixels(metadata)?;
 
     let rgb_pixels: Vec<u8> = pixel_data
-        .chunks_exact(3)
+        .as_chunks::<3>()
+        .0
+        .iter()
         .flat_map(|ycbcr| {
             let y = f32::from(ycbcr[0]);
             let cb = f32::from(ycbcr[1]);
