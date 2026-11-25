@@ -4,7 +4,9 @@ use anyhow::{Result, anyhow};
 use crossterm::{cursor::MoveToColumn, execute, terminal::Clear, terminal::ClearType};
 use image::DynamicImage;
 use std::io::{IsTerminal, Write};
-use viuer::{Config as ViuerConfig, get_kitty_support, is_iterm_supported, print};
+use viuer::{
+    Config as ViuerConfig, get_kitty_support, is_iterm_supported, is_sixel_supported, print,
+};
 
 /// Initialize terminal graphics protocol detection at startup.
 ///
@@ -14,7 +16,12 @@ use viuer::{Config as ViuerConfig, get_kitty_support, is_iterm_supported, print}
 pub fn init_terminal_display() {
     // Only query protocols in TTY - skip if piped/redirected
     if std::io::stdout().is_terminal() {
+        // Query every protocol `print_image` enables before the line clear
+        // below: viuer caches each probe in its own `LazyLock`, so one left
+        // cold would query the terminal during the first `print()` instead,
+        // after the clear has already happened.
         let _kitty = get_kitty_support();
+        let _sixel = is_sixel_supported();
         let _iterm = is_iterm_supported();
 
         // Clear line to hide escape sequences, then move cursor to start
